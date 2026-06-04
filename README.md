@@ -113,6 +113,34 @@ npm run validate-intelligence   # anomaly-rule coverage + cache + imports -> rep
 Reports: `reports/security-audit.md`, `load-test.md`, `query-analysis.md`,
 `intelligence-validation.md`, `remaining-production-risks.md`.
 
+## WhatsApp + TimeOS automation (mission 4)
+
+The client lives in WhatsApp; interview intelligence attaches itself automatically.
+
+- **WhatsApp provider** (`src/lib/whatsapp/provider.ts`) — one interface, a **mock**
+  by default and a **Meta Business API** implementation that activates only when
+  `WHATSAPP_ACCESS_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID` are set. Every outbound +
+  inbound message is persisted (`wa_message`).
+- **Event map** (`src/lib/whatsapp/events.ts`) — candidate-submitted, screening-
+  completed, pending-feedback, and interview reminders (24h/1h/10m). All delivered
+  via the background queue (no inline external HTTP).
+- **Client decisions from WhatsApp** — button taps hit `POST /api/webhooks/whatsapp`,
+  route through the shared `applyClientDecision` (pipeline + submission + timeline +
+  audit), idempotent on the provider message id.
+- **TimeOS/Timeless** (`src/lib/meetings/provider.ts`) — `MeetingIntelligenceProvider`
+  (mock + TimeOS-ready). `POST /api/webhooks/timeos` ingests recording/transcript/
+  summary/action-items, attaches them to the interview, advances the pipeline to
+  *screened*, and fires the client's screening-completed WhatsApp message. Idempotent
+  on the meeting id.
+- **Safety:** duplicate webhook protection (`webhook_event` unique constraint), retries
+  via the existing queue, graceful degradation when WhatsApp/TimeOS/email aren't
+  configured, no secrets committed. Transcripts and internal notes never reach the
+  client portal or WhatsApp.
+
+Demo: `PORT=3955 npm run dev` then `BASE=http://localhost:3955 npx tsx scripts/demo-m4.ts`.
+The worker (`npm run worker`) delivers WhatsApp messages, imports, analysis, and reminders.
+Optional env: see `.env.example` (WHATSAPP_*, TIMEOS_*, RESEND_*).
+
 ## Out of scope (later phases)
 WhatsApp Assistant (§7), Timeless interview capture (§5 — `Interview` table exists, no
 provider wired), and the broader ongoing-workforce Client Portal (§6). `Submission`,

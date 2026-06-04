@@ -121,11 +121,18 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       stage: p.stage,
       enteredStageAt: p.enteredStageAt,
     })),
-    // Interview summaries + video links (Timeless).
+    // Interview summaries + video links (TimeOS/Timeless).
     interviews: row.interviews.map((iv) => ({
       id: iv.id,
       summary: iv.summary,
       recordingUrl: iv.recordingUrl,
+      transcriptAvailable: Boolean(iv.transcript),
+      actionItems: iv.actionItems,
+      participants: iv.participants,
+      provider: iv.provider,
+      meetingTag: iv.meetingTag,
+      meetingTime: iv.meetingTime,
+      webhookStatus: iv.webhookStatus,
       scheduledFor: iv.scheduledFor,
       completedAt: iv.completedAt,
       outcome: iv.outcome,

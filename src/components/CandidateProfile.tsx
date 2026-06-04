@@ -29,6 +29,7 @@ export function CandidateProfile({
   const [noteBody, setNoteBody] = useState("");
   const [noteKind, setNoteKind] = useState("note");
   const [shareMsg, setShareMsg] = useState<string | null>(null);
+  const [scheduleMsg, setScheduleMsg] = useState<string | null>(null);
 
   const load = useCallback(() => {
     api.candidate(candidateId, jobId).then(setData).catch(() => setError("Could not load candidate."));
@@ -48,6 +49,22 @@ export function CandidateProfile({
     });
     setNoteBody("");
     load();
+  }
+
+  async function scheduleScreening() {
+    const targetJob = jobId || data?.pipelines[0]?.jobId;
+    if (!targetJob) {
+      setScheduleMsg("No job in pipeline");
+      return;
+    }
+    const when = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(); // +2 days
+    const res = await api.scheduleInterview(candidateId, targetJob, when);
+    if (res.interviewId) {
+      setScheduleMsg(`Scheduled · reminders: ${res.reminders?.join(", ") || "none"}`);
+      load();
+    } else {
+      setScheduleMsg(res.error || "Failed");
+    }
   }
 
   async function share(forJobId: string) {
@@ -179,23 +196,47 @@ export function CandidateProfile({
             </div>
           </div>
 
-          {/* Interviews */}
+          {/* Interviews (TimeOS/Timeless) */}
           <div className="panel">
-            <div className="panel-title"><Icon name="video" size={14} /> Interviews</div>
+            <div className="panel-title" style={{ justifyContent: "space-between" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}><Icon name="video" size={14} /> Interviews</span>
+              {scheduleMsg ? (
+                <span style={{ fontSize: 11, color: "var(--good)" }}>{scheduleMsg}</span>
+              ) : (
+                <button className="suggest-mini" onClick={scheduleScreening}><Icon name="calendar" size={12} /> Schedule screening</button>
+              )}
+            </div>
             {data.interviews.length === 0 ? (
               <div style={{ fontSize: 13, color: "var(--mute)" }}>No interviews recorded yet.</div>
             ) : (
-              data.interviews.map((iv) => (
-                <div key={iv.id} className="note-item">
-                  <div className="note-meta">{iv.outcome ?? "Interview"} · {iv.completedAt ? fmt(iv.completedAt) : "scheduled"}</div>
-                  {iv.summary && <div style={{ fontSize: 13.5 }}>{iv.summary}</div>}
-                  {iv.recordingUrl && (
-                    <a href={iv.recordingUrl} className="suggest-mini" style={{ marginTop: 6 }} target="_blank" rel="noreferrer">
-                      <Icon name="video" size={13} /> Watch recording
-                    </a>
-                  )}
-                </div>
-              ))
+              data.interviews.map((iv) => {
+                const actions = Array.isArray(iv.actionItems) ? (iv.actionItems as string[]) : [];
+                return (
+                  <div key={iv.id} className="note-item">
+                    <div className="note-meta">
+                      {iv.outcome ?? "Interview"} · {iv.completedAt ? fmt(iv.completedAt) : iv.scheduledFor ? `scheduled ${fmt(iv.scheduledFor)}` : "scheduled"}
+                      {iv.provider && <span className="note-kind">{iv.provider}</span>}
+                      <span className={"note-kind"} title="Webhook status">{iv.webhookStatus ?? "none"}</span>
+                    </div>
+                    {iv.summary && <div style={{ fontSize: 13.5 }}>{iv.summary}</div>}
+                    {actions.length > 0 && (
+                      <ul style={{ margin: "6px 0 0 16px", fontSize: 12.5, color: "var(--ink-soft)" }}>
+                        {actions.slice(0, 5).map((a, i) => <li key={i}>{a}</li>)}
+                      </ul>
+                    )}
+                    <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+                      {iv.recordingUrl && (
+                        <a href={iv.recordingUrl} className="suggest-mini" target="_blank" rel="noreferrer">
+                          <Icon name="video" size={13} /> Watch recording
+                        </a>
+                      )}
+                      <span className="suggest-mini" style={{ cursor: "default" }}>
+                        Transcript: {iv.transcriptAvailable ? "available" : "—"}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })
             )}
           </div>
 

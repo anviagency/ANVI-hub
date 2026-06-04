@@ -4,9 +4,10 @@ import { loadJobRow } from "@/lib/jobs";
 import { toCandidateInput, toJobRequirement } from "@/lib/matching/funnel";
 import { detectAnomalies } from "@/lib/matching/anomaly";
 import { analyzeCandidate } from "@/lib/matching/scoring";
-import { applyStage, STAGE_LABEL } from "@/lib/pipeline";
+import { STAGE_LABEL } from "@/lib/pipeline";
 import { notify } from "@/lib/notify";
 import { getFreshAnalysis } from "@/lib/matching/cache";
+import { applyClientDecision, type ClientDecision } from "@/lib/decisions";
 import type { PipelineStage } from "@prisma/client";
 import type { Risk, Strength } from "@/lib/types";
 
@@ -109,6 +110,8 @@ export interface ClientSafeCandidate {
   sharedNotes: { kind: string; body: string; createdAt: Date }[]; // only if shareNotes
   clientStatus: string; // pending/approved/rejected
   stage: string; // friendly pipeline stage label
+  // Client-safe interview info (video + summary + action items; NEVER transcript).
+  interview: { recordingUrl: string | null; summary: string | null; actionItems: unknown; completedAt: Date | null } | null;
 }
 
 /** Validate a token and project everything the client is allowed to see. */
@@ -151,9 +154,11 @@ export async function resolveShareLink(token: string): Promise<ResolvedShareLink
         : analyzeCandidate({ candidate: input, job: toJobRequirement(jobRow), anomalies, currentYear });
     }
 
-    const [submission, pipeline] = await Promise.all([
+    const [submission, pipeline, interviewRow] = await Promise.all([
       prisma.submission.findUnique({ where: { jobId_candidateId: { jobId: link.jobId, candidateId: row.id } } }),
       prisma.pipeline.findUnique({ where: { candidateId_jobId: { candidateId: row.id, jobId: link.jobId } } }),
+      // Latest completed interview for this candidate+job — client-safe fields only.
+      prisma.interview.findFirst({ where: { candidateId: row.id, jobId: link.jobId, completedAt: { not: null } }, orderBy: { completedAt: "desc" } }),
     ]);
 
     let sharedNotes: ClientSafeCandidate["sharedNotes"] = [];
@@ -186,6 +191,9 @@ export async function resolveShareLink(token: string): Promise<ResolvedShareLink
       sharedNotes,
       clientStatus: submission?.clientStatus ?? "pending",
       stage: STAGE_LABEL[(pipeline?.stage ?? "sent_to_client") as PipelineStage],
+      interview: interviewRow
+        ? { recordingUrl: interviewRow.recordingUrl, summary: interviewRow.summary, actionItems: interviewRow.actionItems, completedAt: interviewRow.completedAt }
+        : null,
     });
   }
 
@@ -198,16 +206,8 @@ export async function resolveShareLink(token: string): Promise<ResolvedShareLink
   };
 }
 
-export type ClientDecision = "approve" | "reject" | "request_interview";
-
-const DECISION_STAGE: Record<ClientDecision, PipelineStage> = {
-  approve: "approved",
-  reject: "rejected",
-  request_interview: "interview",
-};
-
 /** A client action through the link — authorized purely by the token. */
-export async function recordDecision(token: string, candidateId: string, decision: ClientDecision, feedback?: string) {
+export async function recordDecision(token: string, candidateId: string, decision: ClientDecision, feedback?: string, ip?: string) {
   const link = await prisma.shareLink.findUnique({
     where: { token },
     include: { candidates: true },
@@ -217,21 +217,7 @@ export async function recordDecision(token: string, candidateId: string, decisio
   if (link.expiresAt && link.expiresAt.getTime() < Date.now()) throw new ShareError("expired");
   if (!link.candidates.some((c) => c.candidateId === candidateId)) throw new ShareError("candidate_not_shared");
 
-  const to = DECISION_STAGE[decision];
-  const result = await applyStage({ candidateId, jobId: link.jobId, to, actor: "client", feedback });
-
-  // Record the specific client-action event in addition to the generic stage_changed.
-  await prisma.candidateEvent.create({
-    data: {
-      candidateId,
-      jobId: link.jobId,
-      type: decision === "approve" ? "client_approved" : decision === "reject" ? "client_rejected" : "interview_requested",
-      actor: "client",
-      meta: { token, feedback: feedback ?? null },
-    },
-  });
-
-  return { decision, stage: result.to };
+  return applyClientDecision({ candidateId, jobId: link.jobId, decision, via: "share_link", reason: feedback, ip });
 }
 
 export async function revokeShareLink(token: string, revokedBy?: string): Promise<void> {

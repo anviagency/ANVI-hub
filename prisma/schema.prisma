@@ -370,18 +370,29 @@ model Interview {
   id               String    @id @default(cuid())
   candidateId      String    @map("candidate_id")
   jobId            String?   @map("job_id")
-  timelessMeetingId String?  @map("timeless_meeting_id")
+  timelessMeetingId String?  @unique @map("timeless_meeting_id")
+  // Tag ANVI generates at scheduling time so an inbound meeting can be matched
+  // back to this interview (Mission 4 — MeetingIntelligenceProvider).
+  meetingTag       String?   @unique @map("meeting_tag")
+  provider         String?   // e.g. "timeos", "mock"
   recordingUrl     String?   @map("recording_url")
   transcript       String?
   summary          String?
   actionItems      Json      @default("[]") @map("action_items")
+  participants     Json      @default("[]")
+  meetingTime      DateTime? @map("meeting_time")
   scheduledFor     DateTime? @map("scheduled_for")
   completedAt      DateTime? @map("completed_at")
   outcome          String?
+  // none | scheduled | summary_ready | failed
+  webhookStatus    String    @default("none") @map("webhook_status")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
   job       Job?      @relation(fields: [jobId], references: [id], onDelete: SetNull)
 
+  @@index([candidateId])
   @@map("interview")
 }
 
@@ -538,6 +549,7 @@ model ShareLinkCandidate {
 enum NotificationChannel {
   telegram
   recruiter
+  email
 }
 
 enum NotificationStatus {
@@ -579,4 +591,71 @@ model ImportBatch {
   candidates Candidate[]
 
   @@map("import_batch")
+}
+
+// ---------------------------------------------------------------------------
+// WHATSAPP (Mission 4) — every outbound + inbound message is persisted.
+// ---------------------------------------------------------------------------
+enum WaDirection {
+  outbound
+  inbound
+}
+
+enum WaKind {
+  template
+  interactive
+  text
+}
+
+enum WaStatus {
+  queued
+  sent
+  delivered
+  failed
+  skipped
+  received
+}
+
+model WaMessage {
+  id          String      @id @default(cuid())
+  direction   WaDirection
+  kind        WaKind
+  status      WaStatus    @default(queued)
+  toNumber    String?     @map("to_number")
+  fromNumber  String?     @map("from_number")
+  clientId    String?     @map("client_id")
+  candidateId String?     @map("candidate_id")
+  jobId       String?     @map("job_id")
+  templateName String?    @map("template_name")
+  event       String?     // semantic event: candidate_submitted, screening_completed, reminder…
+  body        String?
+  payload     Json        @default("{}")
+  externalId  String?     @map("external_id") // provider message id
+  error       String?
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  @@index([clientId])
+  @@index([candidateId])
+  @@index([status])
+  @@map("wa_message")
+}
+
+// ---------------------------------------------------------------------------
+// WEBHOOK IDEMPOTENCY (Mission 4) — dedupe inbound WhatsApp + TimeOS events.
+// ---------------------------------------------------------------------------
+model WebhookEvent {
+  id          String   @id @default(cuid())
+  provider    String   // whatsapp | timeos
+  externalId  String   @map("external_id")
+  type        String?
+  status      String   @default("received") // received | processed | failed | duplicate
+  payload     Json     @default("{}")
+  error       String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  processedAt DateTime? @map("processed_at")
+
+  @@unique([provider, externalId])
+  @@index([provider, status])
+  @@map("webhook_event")
 }

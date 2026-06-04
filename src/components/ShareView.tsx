@@ -22,6 +22,7 @@ interface ClientCandidate {
   sharedNotes: { kind: string; body: string }[];
   clientStatus: string;
   stage: string;
+  interview: { recordingUrl: string | null; summary: string | null; actionItems: unknown; completedAt: string | null } | null;
 }
 
 interface ShareData {
@@ -139,6 +140,23 @@ export function ShareView({ token }: { token: string }) {
                 {c.risks.slice(0, 3).map((r, i) => (
                   <div key={i} className="intel intel-warn"><span className="intel-ic">⚠️</span><div>{r.text}</div></div>
                 ))}
+              </div>
+            )}
+
+            {c.interview && (c.interview.recordingUrl || c.interview.summary) && (
+              <div style={{ marginTop: 10, padding: 12, background: "var(--good-bg)", borderRadius: 12 }}>
+                <div className="sect-label" style={{ color: "var(--good)" }}><Icon name="video" size={13} /> Screening completed</div>
+                {c.interview.summary && <div style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 6 }}>{c.interview.summary}</div>}
+                {Array.isArray(c.interview.actionItems) && (c.interview.actionItems as string[]).length > 0 && (
+                  <ul style={{ margin: "0 0 8px 16px", fontSize: 12.5, color: "var(--ink-soft)" }}>
+                    {(c.interview.actionItems as string[]).slice(0, 4).map((a, i) => <li key={i}>{a}</li>)}
+                  </ul>
+                )}
+                {c.interview.recordingUrl && (
+                  <a href={c.interview.recordingUrl} className="btn btn-good" target="_blank" rel="noreferrer" style={{ fontSize: 13 }}>
+                    <Icon name="video" size={14} /> Watch recording
+                  </a>
+                )}
               </div>
             )}
 

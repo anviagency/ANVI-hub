@@ -8,6 +8,7 @@ import { CandidateDrawer } from "@/components/CandidateDrawer";
 import { CandidateProfile } from "@/components/CandidateProfile";
 import { PipelineView } from "@/components/PipelineView";
 import { ImportView } from "@/components/ImportView";
+import { ActivityView } from "@/components/ActivityView";
 import { VacanciesView, CandidatesView, ClientsView } from "@/components/views";
 
 const NAV = [
@@ -16,6 +17,7 @@ const NAV = [
   { key: "vacancies", icon: "briefcase", label: "Vacancies" },
   { key: "candidates", icon: "users", label: "Talent pool" },
   { key: "import", icon: "download", label: "Import" },
+  { key: "activity", icon: "message", label: "Activity" },
   { key: "clients", icon: "building", label: "Clients" },
 ] as const;
 
@@ -120,6 +122,7 @@ export default function Page() {
         {route === "vacancies" && <VacanciesView onMatch={runPrompt} />}
         {route === "candidates" && <CandidatesView onOpen={(id) => openProfile(id)} />}
         {route === "import" && <ImportView />}
+        {route === "activity" && <ActivityView />}
         {route === "clients" && <ClientsView />}
         {route === "profile" && profile && (
           <CandidateProfile candidateId={profile.id} jobId={profile.jobId} onBack={() => setRoute("candidates")} />

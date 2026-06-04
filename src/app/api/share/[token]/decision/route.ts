@@ -3,7 +3,6 @@ import { z } from "zod";
 import { recordDecision, ShareError } from "@/lib/share";
 import { rateLimit } from "@/lib/security/rate-limit";
 import { getClientIp } from "@/lib/security/request";
-import { audit } from "@/lib/auth/audit";
 
 export const runtime = "nodejs";
 
@@ -25,8 +24,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
   if (!parsed.success) return NextResponse.json({ error: "invalid_body" }, { status: 400 });
 
   try {
-    const result = await recordDecision(token, parsed.data.candidateId, parsed.data.decision, parsed.data.feedback);
-    await audit({ actorType: "client", action: `client_${parsed.data.decision}`, entity: "candidate", entityId: parsed.data.candidateId, meta: { token }, ip });
+    // recordDecision -> applyClientDecision handles the timeline event + audit.
+    const result = await recordDecision(token, parsed.data.candidateId, parsed.data.decision, parsed.data.feedback, ip);
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
     if (e instanceof ShareError) {

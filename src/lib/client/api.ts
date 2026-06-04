@@ -133,7 +133,29 @@ export const api = {
     getJson<{ notifications: { id: string; channel: string; status: string; title: string; body: string; createdAt: string }[] }>(
       "/api/notifications"
     ),
+
+  scheduleInterview: (candidateId: string, jobId: string, scheduledFor: string) =>
+    postJson<{ interviewId?: string; meetingTag?: string; reminders?: string[]; error?: string }>("/api/interviews/schedule", {
+      candidateId,
+      jobId,
+      scheduledFor,
+    }),
+
+  whatsappMessages: (candidateId?: string) =>
+    getJson<{ messages: WaMessageItem[] }>(`/api/whatsapp/messages${candidateId ? `?candidateId=${candidateId}` : ""}`),
 };
+
+export interface WaMessageItem {
+  id: string;
+  direction: string;
+  kind: string;
+  status: string;
+  event: string | null;
+  toNumber: string | null;
+  fromNumber: string | null;
+  body: string | null;
+  createdAt: string;
+}
 
 export interface ImportPreview {
   filename?: string;
@@ -255,6 +277,13 @@ export interface CandidateDetail {
     id: string;
     summary: string | null;
     recordingUrl: string | null;
+    transcriptAvailable?: boolean;
+    actionItems?: unknown;
+    participants?: unknown;
+    provider?: string | null;
+    meetingTag?: string | null;
+    meetingTime?: string | null;
+    webhookStatus?: string;
     scheduledFor: string | null;
     completedAt: string | null;
     outcome: string | null;

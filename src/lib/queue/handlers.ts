@@ -2,6 +2,10 @@ import { deliverTelegramNotification } from "@/lib/notify";
 import { ingestRows, ColumnMapping } from "@/lib/import/ingest";
 import { loadJobRow } from "@/lib/jobs";
 import { runMatch, persistAnalyses } from "@/lib/matching/funnel";
+import { deliverWaMessage } from "@/lib/whatsapp/messages";
+import { notifyInterviewReminder, notifyPendingFeedback } from "@/lib/whatsapp/events";
+import { sendEmail } from "@/lib/email/provider";
+import { prisma } from "@/lib/db";
 import type { Handlers } from "@/lib/queue/queue";
 
 // Background job handlers (Mission 3.5 P4). Each is a pure async function of its
@@ -34,5 +38,35 @@ export const handlers: Handlers = {
     const results = await runMatch(job, { limit: typeof payload.limit === "number" ? payload.limit : 50 });
     await persistAnalyses(job.id, results);
     return { jobId, analyzed: results.length };
+  },
+
+  // Outbound WhatsApp delivery — the only WhatsApp HTTP, off the request path.
+  wa_send: async (payload) => {
+    return deliverWaMessage(String(payload.messageId));
+  },
+
+  // Interview reminder: WhatsApp + email (if available).
+  interview_reminder: async (payload) => {
+    const interviewId = String(payload.interviewId);
+    const label = String(payload.label ?? "");
+    const waId = await notifyInterviewReminder(interviewId, label);
+    const interview = await prisma.interview.findUnique({ where: { id: interviewId }, include: { candidate: true, job: { include: { client: true } } } });
+    let email = "skipped";
+    if (interview?.job?.client?.email) {
+      const r = await sendEmail({
+        to: interview.job.client.email,
+        subject: `Interview reminder (${label}) — ${interview.candidate.fullName}`,
+        body: `Reminder: interview with ${interview.candidate.fullName} for ${interview.job.title}.`,
+        jobId: interview.jobId, candidateId: interview.candidateId,
+      });
+      email = r.status;
+    }
+    return { waMessageId: waId, email };
+  },
+
+  // Pending-feedback reminder for a client/job.
+  pending_feedback_reminder: async (payload) => {
+    const waId = await notifyPendingFeedback(String(payload.clientId), String(payload.jobId));
+    return { waMessageId: waId };
   },
 };

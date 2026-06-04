@@ -4,7 +4,13 @@ import type { Prisma } from "@prisma/client";
 // Postgres-backed job queue (Mission 3.5 P4). Uses SELECT ... FOR UPDATE SKIP
 // LOCKED so multiple workers can drain it safely without external infra.
 
-export type JobType = "deliver_notification" | "import_candidates" | "analyze_job";
+export type JobType =
+  | "deliver_notification"
+  | "import_candidates"
+  | "analyze_job"
+  | "wa_send"
+  | "interview_reminder"
+  | "pending_feedback_reminder";
 
 export interface ClaimedJob {
   id: string;

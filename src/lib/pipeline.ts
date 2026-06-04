@@ -128,6 +128,15 @@ export async function applyStage(opts: {
     candidateId,
   });
 
+  // Mission 4: reaching the client surfaces the candidate on WhatsApp + sets a
+  // pending-feedback reminder. Lazy import avoids a static pipeline↔whatsapp cycle.
+  if (to === "sent_to_client" && job?.clientId) {
+    const { notifyCandidateSubmitted } = await import("@/lib/whatsapp/events");
+    const { schedulePendingFeedbackReminder } = await import("@/lib/reminders");
+    await notifyCandidateSubmitted(candidateId, jobId).catch((e) => console.error("wa submitted", e));
+    await schedulePendingFeedbackReminder(job.clientId, jobId).catch((e) => console.error("pending reminder", e));
+  }
+
   return { candidateId, jobId, from, to, changed: true };
 }
 
