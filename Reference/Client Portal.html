@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ANVI · Your Shortlist</title>
+<meta name="ext-resource-dependency" content="assets/anvi-logo.png" data-resource-id="anviLogo" />
+<template id="__bundler_thumbnail" data-bg-color="#fcfcf7">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <rect width="1200" height="800" fill="#fcfcf7"/>
+    <g fill="#1a1a22">
+      <path d="M470 470 L520 350 L560 470 Z"/>
+      <path d="M610 350 L690 350 L640 470 L600 470 Z"/>
+      <rect x="700" y="350" width="40" height="120"/>
+      <path d="M770 350 L810 350 L810 470 L770 470 Z"/>
+    </g>
+    <text x="600" y="560" font-family="Hanken Grotesk, sans-serif" font-size="42" font-weight="700" fill="#d97640" text-anchor="middle" letter-spacing="2">ANVI</text>
+  </svg>
+</template>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="app/client.css" />
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:"Hanken Grotesk",system-ui,sans-serif;-webkit-font-smoothing:antialiased;letter-spacing:-0.01em;background:oklch(0.99 0.004 95)}
+  button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;letter-spacing:inherit}
+  input{font-family:inherit;letter-spacing:inherit}
+  :root{--mono:"JetBrains Mono",ui-monospace,monospace}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="app/data.jsx"></script>
+<script type="text/babel" src="app/ui.jsx"></script>
+<script type="text/babel" src="app/client-data.jsx"></script>
+<script type="text/babel" src="app/client-team.jsx"></script>
+<script type="text/babel" src="app/client-cards.jsx"></script>
+<script type="text/babel" src="app/client-interviews.jsx"></script>
+<script type="text/babel" src="app/client-team-views.jsx"></script>
+<script type="text/babel" src="app/client-app.jsx"></script>
+</body>
+</html>

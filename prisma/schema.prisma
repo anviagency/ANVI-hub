@@ -1,0 +1,484 @@
+// ANVI Recruitment OS — data model (spec §10), implemented on PostgreSQL via Prisma.
+// No Supabase: plain Postgres + Prisma migrations.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// CLIENTS
+// ---------------------------------------------------------------------------
+model Client {
+  id             String   @id @default(cuid())
+  name           String
+  company        String?
+  initials       String?
+  country        String?
+  tz             String?
+  whatsappNumber String?  @map("whatsapp_number")
+  email          String?
+  portalSlug     String   @unique @map("portal_slug")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  jobs        Job[]
+  submissions Submission[]
+  events      CandidateEvent[]
+  placements  Placement[]
+  shareLinks  ShareLink[]
+
+  @@map("client")
+}
+
+// ---------------------------------------------------------------------------
+// SKILLS (canonical + synonyms, plus optional release year for anomaly checks)
+// ---------------------------------------------------------------------------
+model Skill {
+  id            String   @id @default(cuid())
+  canonicalName String   @unique @map("canonical_name")
+  synonyms      String[] @default([])
+  // Year the technology was first publicly released. Used by the anomaly
+  // engine to flag impossible tenure (skill_years > current_year - release_year).
+  releaseYear   Int?     @map("release_year")
+
+  jobSkills       JobSkill[]
+  candidateSkills CandidateSkill[]
+
+  @@map("skill")
+}
+
+// ---------------------------------------------------------------------------
+// JOBS (parsed from chat)
+// ---------------------------------------------------------------------------
+enum JobStatus {
+  open
+  paused
+  filled
+}
+
+model Job {
+  id                 String    @id @default(cuid())
+  clientId           String?   @map("client_id")
+  title              String
+  seniority          String?
+  budgetMin          Float?    @map("budget_min")
+  budgetMax          Float?    @map("budget_max")
+  budgetUnit         String?   @map("budget_unit") // e.g. "usd_hour"
+  englishLevel       String?   @map("english_level")
+  experienceYearsMin Int?      @map("experience_years_min")
+  descriptionRaw     String?   @map("description_raw")
+  status             JobStatus @default(open)
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  client      Client?            @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  skills      JobSkill[]
+  analyses    CandidateAnalysis[]
+  events      CandidateEvent[]
+  interviews  Interview[]
+  submissions Submission[]
+  placements  Placement[]
+  pipelines   Pipeline[]
+  notes       Note[]
+  shareLinks  ShareLink[]
+
+  @@index([clientId])
+  @@map("job")
+}
+
+model JobSkill {
+  id       String  @id @default(cuid())
+  jobId    String  @map("job_id")
+  skillId  String  @map("skill_id")
+  required Boolean @default(true)
+  minYears Int?    @map("min_years")
+
+  job   Job   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  skill Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, skillId])
+  @@map("job_skill")
+}
+
+// ---------------------------------------------------------------------------
+// CANDIDATES
+// ---------------------------------------------------------------------------
+enum Availability {
+  available
+  on_hold
+  placed
+}
+
+model Candidate {
+  id                String       @id @default(cuid())
+  fullName          String       @map("full_name")
+  title             String?
+  email             String?
+  phone             String?
+  location          String?
+  country           String?
+  flag              String?
+  availability      Availability @default(available)
+  availabilityNote  String?      @map("availability_note") // e.g. "2 weeks", "Immediate"
+  englishLevel      String?      @map("english_level")
+  totalYears        Float?       @map("total_years")
+  // Earliest career start year — anchors the "career length" anomaly checks.
+  careerStartYear   Int?         @map("career_start_year")
+  salaryExpectation Float?       @map("salary_expectation") // internal cost, $/hr
+  clientRate        Float?       @map("client_rate")        // shown to client, $/hr
+  cvUrl             String?      @map("cv_url")
+  // Title as it appears on LinkedIn — used for CV-vs-LinkedIn conflict checks.
+  linkedinUrl       String?      @map("linkedin_url")
+  linkedinTitle     String?      @map("linkedin_title")
+  aiSummary         String?      @map("ai_summary")
+  source            String?
+  lastContactedAt   DateTime?    @map("last_contacted_at")
+  lastScreenedAt    DateTime?    @map("last_screened_at")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+
+  // Identity used for import dedupe (email preferred, else name+country).
+  dedupeKey         String?      @unique @map("dedupe_key")
+  importBatchId     String?      @map("import_batch_id")
+
+  skills      CandidateSkill[]
+  employments Employment[]
+  analyses    CandidateAnalysis[]
+  events      CandidateEvent[]
+  interviews  Interview[]
+  submissions Submission[]
+  placements  Placement[]
+  pipelines   Pipeline[]
+  notes       Note[]
+  shares      ShareLinkCandidate[]
+  importBatch ImportBatch? @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
+
+  @@index([availability])
+  @@index([updatedAt])
+  @@index([country])
+  @@map("candidate")
+}
+
+model CandidateSkill {
+  id          String  @id @default(cuid())
+  candidateId String  @map("candidate_id")
+  skillId     String  @map("skill_id")
+  years       Float   @default(0)
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  skill     Skill     @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([candidateId, skillId])
+  @@index([skillId])
+  @@map("candidate_skill")
+}
+
+// Employment history — backs the date-overlap / gap / tenure anomaly rules.
+model Employment {
+  id           String    @id @default(cuid())
+  candidateId  String    @map("candidate_id")
+  company      String
+  title        String?
+  fullTime     Boolean   @default(true) @map("full_time")
+  startDate    DateTime  @map("start_date")
+  endDate      DateTime? @map("end_date") // null = current
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([candidateId])
+  @@map("employment")
+}
+
+// ---------------------------------------------------------------------------
+// AI INTELLIGENCE (cached per candidate per job)
+// ---------------------------------------------------------------------------
+enum Recommendation {
+  strong
+  possible
+  weak
+}
+
+model CandidateAnalysis {
+  id           String         @id @default(cuid())
+  candidateId  String         @map("candidate_id")
+  jobId        String         @map("job_id")
+  matchScore   Float          @map("match_score")
+  recommendation Recommendation @default(possible)
+  strengths    Json           @default("[]") // [{text, evidence}]
+  risks        Json           @default("[]") // [{text, severity}]
+  anomalies    Json           @default("[]") // [{text, rule, severity}]
+  modelVersion String?        @map("model_version")
+  analyzedAt   DateTime       @default(now()) @map("analyzed_at")
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  job       Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([candidateId, jobId])
+  @@map("candidate_analysis")
+}
+
+// ---------------------------------------------------------------------------
+// TIMELINE / EVENTS
+// ---------------------------------------------------------------------------
+enum EventType {
+  created
+  updated
+  contacted
+  screened
+  submitted
+  interview_scheduled
+  passed
+  failed
+  placed
+  imported
+  stage_changed
+  note_added
+  communication
+  shared
+  client_approved
+  client_rejected
+  interview_requested
+}
+
+enum Actor {
+  recruiter
+  system
+  client
+}
+
+model CandidateEvent {
+  id          String    @id @default(cuid())
+  candidateId String    @map("candidate_id")
+  jobId       String?   @map("job_id")
+  clientId    String?   @map("client_id")
+  type        EventType
+  meta        Json      @default("{}")
+  actor       Actor     @default(recruiter)
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  job       Job?      @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  client    Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([candidateId])
+  @@map("candidate_event")
+}
+
+// ---------------------------------------------------------------------------
+// INTERVIEWS (Timeless / timeOS)
+// ---------------------------------------------------------------------------
+model Interview {
+  id               String    @id @default(cuid())
+  candidateId      String    @map("candidate_id")
+  jobId            String?   @map("job_id")
+  timelessMeetingId String?  @map("timeless_meeting_id")
+  recordingUrl     String?   @map("recording_url")
+  transcript       String?
+  summary          String?
+  actionItems      Json      @default("[]") @map("action_items")
+  scheduledFor     DateTime? @map("scheduled_for")
+  completedAt      DateTime? @map("completed_at")
+  outcome          String?
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  job       Job?      @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@map("interview")
+}
+
+// ---------------------------------------------------------------------------
+// CLIENT SUBMISSIONS
+// ---------------------------------------------------------------------------
+enum ClientStatus {
+  pending
+  approved
+  rejected
+}
+
+model Submission {
+  id             String       @id @default(cuid())
+  clientId       String       @map("client_id")
+  jobId          String       @map("job_id")
+  candidateId    String       @map("candidate_id")
+  clientStatus   ClientStatus @default(pending) @map("client_status")
+  clientFeedback String?      @map("client_feedback")
+  submittedAt    DateTime     @default(now()) @map("submitted_at")
+
+  client    Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  job       Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, candidateId])
+  @@map("submission")
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 2: ongoing workforce
+// ---------------------------------------------------------------------------
+model Placement {
+  id          String    @id @default(cuid())
+  clientId    String    @map("client_id")
+  candidateId String    @map("candidate_id")
+  jobId       String?   @map("job_id")
+  startDate   DateTime? @map("start_date")
+  status      String    @default("active")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  client    Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  job       Job?      @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@map("placement")
+}
+
+// ---------------------------------------------------------------------------
+// RECRUITING PIPELINE (per candidate per job)
+// ---------------------------------------------------------------------------
+enum PipelineStage {
+  new
+  screened
+  sent_to_client
+  interview
+  approved
+  rejected
+  hired
+}
+
+model Pipeline {
+  id          String        @id @default(cuid())
+  candidateId String        @map("candidate_id")
+  jobId       String        @map("job_id")
+  stage       PipelineStage @default(new)
+  // Denormalized for fast filtering/sorting on the board.
+  enteredStageAt DateTime   @default(now()) @map("entered_stage_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  job       Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([candidateId, jobId])
+  @@index([jobId, stage])
+  @@map("pipeline")
+}
+
+// ---------------------------------------------------------------------------
+// NOTES & COMMUNICATION HISTORY
+// ---------------------------------------------------------------------------
+enum NoteKind {
+  note
+  call
+  email
+  telegram
+  whatsapp
+  interview
+}
+
+model Note {
+  id          String   @id @default(cuid())
+  candidateId String   @map("candidate_id")
+  jobId       String?  @map("job_id")
+  kind        NoteKind @default(note)
+  body        String
+  // Internal notes are never exposed on a client share link unless that link
+  // explicitly opts in (ShareLinkCandidate.shareNotes).
+  internal    Boolean  @default(true)
+  author      String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  job       Job?      @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@index([candidateId])
+  @@map("note")
+}
+
+// ---------------------------------------------------------------------------
+// CLIENT SHARE LINKS (secure, scoped, client-facing)
+// ---------------------------------------------------------------------------
+model ShareLink {
+  id        String    @id @default(cuid())
+  token     String    @unique
+  jobId     String    @map("job_id")
+  clientId  String?   @map("client_id")
+  label     String?
+  revoked   Boolean   @default(false)
+  expiresAt DateTime? @map("expires_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  job        Job                  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  client     Client?              @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  candidates ShareLinkCandidate[]
+
+  @@index([jobId])
+  @@map("share_link")
+}
+
+model ShareLinkCandidate {
+  id          String  @id @default(cuid())
+  shareLinkId String  @map("share_link_id")
+  candidateId String  @map("candidate_id")
+  // When true, internal notes for this candidate are visible on the link.
+  shareNotes  Boolean @default(false) @map("share_notes")
+
+  shareLink ShareLink @relation(fields: [shareLinkId], references: [id], onDelete: Cascade)
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@unique([shareLinkId, candidateId])
+  @@map("share_link_candidate")
+}
+
+// ---------------------------------------------------------------------------
+// NOTIFICATIONS (Telegram sync + recruiter notifications)
+// ---------------------------------------------------------------------------
+enum NotificationChannel {
+  telegram
+  recruiter
+}
+
+enum NotificationStatus {
+  queued
+  sent
+  failed
+  skipped
+}
+
+model Notification {
+  id          String              @id @default(cuid())
+  channel     NotificationChannel
+  status      NotificationStatus  @default(queued)
+  title       String
+  body        String
+  jobId       String?             @map("job_id")
+  candidateId String?             @map("candidate_id")
+  externalRef String?             @map("external_ref")
+  error       String?
+  createdAt   DateTime            @default(now()) @map("created_at")
+
+  @@index([channel, status])
+  @@map("notification")
+}
+
+// ---------------------------------------------------------------------------
+// IMPORT BATCHES (Excel/CSV ingestion audit)
+// ---------------------------------------------------------------------------
+model ImportBatch {
+  id        String   @id @default(cuid())
+  filename  String?
+  source    String?
+  total     Int      @default(0)
+  created   Int      @default(0)
+  updated   Int      @default(0)
+  skipped   Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  candidates Candidate[]
+
+  @@map("import_batch")
+}
