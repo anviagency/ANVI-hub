@@ -1,11 +1,9 @@
 import { prisma } from "@/lib/db";
+import { enqueue } from "@/lib/queue/queue";
 
-// Telegram sync + recruiter notifications (spec §7 / mission item 5).
-// Every notification is persisted to the `notification` table (a real, testable
-// artifact). When TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID are configured, the
-// telegram-channel notifications are also pushed to the group via the Bot API.
-// With no token, telegram notifications are recorded with status "skipped" so
-// the rest of the system keeps working offline.
+// Telegram sync + recruiter notifications (spec §7 / mission 2 item 5),
+// now ASYNC (Mission 3.5 P4): the request path NEVER makes an outbound HTTP
+// call. Telegram delivery is enqueued to the background queue; the worker sends.
 
 export interface NotifyInput {
   channel: "telegram" | "recruiter";
@@ -23,56 +21,53 @@ export function telegramConfigured(): boolean {
 }
 
 /**
- * Persist a notification and (for telegram) attempt delivery. Never throws —
- * a failed notification must not break a pipeline transition.
+ * Persist a notification. Recruiter notifications are in-app (no external call).
+ * Telegram notifications are recorded and ENQUEUED for background delivery —
+ * never sent inline. Never throws.
  */
 export async function notify(input: NotifyInput): Promise<void> {
-  let status: "queued" | "sent" | "failed" | "skipped" = "queued";
-  let externalRef: string | null = null;
-  let error: string | null = null;
-
-  if (input.channel === "telegram") {
-    if (!telegramConfigured()) {
-      status = "skipped";
-    } else {
-      try {
-        const res = await sendTelegram(`*${input.title}*\n${input.body}`);
-        status = "sent";
-        externalRef = res;
-      } catch (e) {
-        status = "failed";
-        error = (e as Error).message;
-      }
-    }
-  } else {
-    // Recruiter notifications are in-app; "sent" == persisted and available.
-    status = "sent";
-  }
-
   try {
-    await prisma.notification.create({
-      data: {
-        channel: input.channel,
-        status,
-        title: input.title,
-        body: input.body,
-        jobId: input.jobId ?? null,
-        candidateId: input.candidateId ?? null,
-        externalRef,
-        error,
-      },
+    if (input.channel === "recruiter") {
+      await prisma.notification.create({
+        data: { channel: "recruiter", status: "sent", title: input.title, body: input.body, jobId: input.jobId ?? null, candidateId: input.candidateId ?? null },
+      });
+      return;
+    }
+
+    // telegram
+    if (!telegramConfigured()) {
+      await prisma.notification.create({
+        data: { channel: "telegram", status: "skipped", title: input.title, body: input.body, jobId: input.jobId ?? null, candidateId: input.candidateId ?? null },
+      });
+      return;
+    }
+    const n = await prisma.notification.create({
+      data: { channel: "telegram", status: "queued", title: input.title, body: input.body, jobId: input.jobId ?? null, candidateId: input.candidateId ?? null },
     });
+    await enqueue("deliver_notification", { notificationId: n.id });
   } catch (e) {
-    console.error("[notify] failed to persist notification:", (e as Error).message);
+    console.error("[notify] failed:", (e as Error).message);
   }
 }
 
 /** Fire both a telegram group sync and a recruiter notification for one event. */
 export async function notifyBoth(input: Omit<NotifyInput, "channel">): Promise<void> {
-  await Promise.all([
-    notify({ ...input, channel: "telegram" }),
-    notify({ ...input, channel: "recruiter" }),
-  ]);
+  await Promise.all([notify({ ...input, channel: "telegram" }), notify({ ...input, channel: "recruiter" })]);
+}
+
+/** Worker-side: actually deliver a queued telegram notification. */
+export async function deliverTelegramNotification(notificationId: string): Promise<{ messageId: string }> {
+  const n = await prisma.notification.findUnique({ where: { id: notificationId } });
+  if (!n) throw new Error(`notification ${notificationId} not found`);
+  if (n.channel !== "telegram") return { messageId: "" };
+  try {
+    const messageId = await sendTelegram(`*${n.title}*\n${n.body}`);
+    await prisma.notification.update({ where: { id: n.id }, data: { status: "sent", externalRef: messageId } });
+    return { messageId };
+  } catch (e) {
+    await prisma.notification.update({ where: { id: n.id }, data: { status: "failed", error: (e as Error).message } });
+    throw e;
+  }
 }
 
 async function sendTelegram(text: string): Promise<string> {

@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveShareLink, ShareError } from "@/lib/share";
+import { rateLimit } from "@/lib/security/rate-limit";
+import { getClientIp } from "@/lib/security/request";
 
 export const runtime = "nodejs";
 
 // GET /api/share/:token — PUBLIC client view. Authorized solely by the token.
-// Returns only client-safe fields for only the shared candidates.
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ token: string }> }) {
+// Returns only client-safe fields for only the shared candidates. Rate-limited.
+export async function GET(req: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
+  const rl = rateLimit(`share-view:${getClientIp(req)}`, 60, 60_000);
+  if (!rl.allowed) return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   try {
     const data = await resolveShareLink(token);
     return NextResponse.json(data);

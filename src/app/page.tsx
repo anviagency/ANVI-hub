@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Icon } from "@/components/Icon";
 import { Avatar } from "@/components/primitives";
 import { ChatView } from "@/components/ChatView";
@@ -27,6 +27,25 @@ export default function Page() {
   const [chatKey, setChatKey] = useState(0);
   const [drawer, setDrawer] = useState<{ id: string; jobId?: string } | null>(null);
   const [profile, setProfile] = useState<{ id: string; jobId?: string } | null>(null);
+  const [me, setMe] = useState<{ name: string; role: string } | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => {
+        setMe(d.user);
+        setAuthChecked(true);
+      })
+      .catch(() => {
+        location.href = "/login?next=/";
+      });
+  }, []);
+
+  const logout = async () => {
+    await fetch("/api/auth/logout", { method: "POST", headers: { "x-anvi": "1" } });
+    location.href = "/login";
+  };
 
   const newChat = () => {
     setSeedPrompt(null);
@@ -46,6 +65,10 @@ export default function Page() {
   };
 
   const sideRoute: string = route === "profile" ? "candidates" : route;
+
+  if (!authChecked) {
+    return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", color: "var(--mute)" }}>Loading…</div>;
+  }
 
   return (
     <div className="app">
@@ -78,12 +101,14 @@ export default function Page() {
           ))}
         </div>
         <div className="user">
-          <Avatar initials="DL" size={32} accent />
+          <Avatar initials={(me?.name ?? "DL").split(/\s+/).map((w) => w[0]?.toUpperCase()).join("").slice(0, 2)} size={32} accent />
           <div className="user-id">
-            <div className="user-name">Daria Levin</div>
-            <div className="user-role">Senior Recruiter</div>
+            <div className="user-name">{me?.name ?? "Recruiter"}</div>
+            <div className="user-role" style={{ textTransform: "capitalize" }}>{me?.role ?? ""}</div>
           </div>
-          <Icon name="sliders" size={16} className="user-set" />
+          <button className="user-set" onClick={logout} title="Sign out" style={{ background: "none" }}>
+            <Icon name="x" size={16} />
+          </button>
         </div>
       </aside>
 

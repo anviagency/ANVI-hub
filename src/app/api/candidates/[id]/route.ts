@@ -5,13 +5,19 @@ import { loadJobRow } from "@/lib/jobs";
 import { detectAnomalies } from "@/lib/matching/anomaly";
 import { analyzeCandidate } from "@/lib/matching/scoring";
 import { scoreFreshness } from "@/lib/matching/freshness";
+import { getFreshAnalysis } from "@/lib/matching/cache";
+import { authenticate, RECRUITER_ROLES } from "@/lib/auth/guard";
 
 export const runtime = "nodejs";
 
 // GET /api/candidates/:id?jobId=... — the candidate workspace / data room (spec §4.4).
 // Anomalies are job-independent and always computed; full strengths/risks/score
-// are computed against the requested job when one is supplied.
+// are computed against the requested job when one is supplied. Reads the
+// candidate_analysis cache when fresh (Mission 3.5 P2). Auth required.
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await authenticate(req, RECRUITER_ROLES);
+  if (!auth.ok) return auth.response;
+
   const { id } = await params;
   const jobId = req.nextUrl.searchParams.get("jobId") ?? undefined;
 
@@ -36,15 +42,30 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const effectiveJobId = jobId ?? row.pipelines[0]?.jobId;
 
   let analysis = null;
+  let analysisSource: "none" | "cache" | "computed" = "none";
   if (effectiveJobId) {
-    const job = await loadJobRow(effectiveJobId);
-    if (job) {
-      analysis = analyzeCandidate({
-        candidate: input,
-        job: toJobRequirement(job),
-        anomalies,
-        currentYear,
-      });
+    const jobMeta = await prisma.job.findUnique({ where: { id: effectiveJobId }, select: { updatedAt: true } });
+    const cached = jobMeta
+      ? await getFreshAnalysis(id, effectiveJobId, row.updatedAt, jobMeta.updatedAt)
+      : { analysis: null, hit: false };
+    if (cached.hit && cached.analysis) {
+      // Serve cached evidence; recompute only freshness (time-dependent, cheap).
+      analysis = {
+        matchScore: cached.analysis.matchScore,
+        recommendation: cached.analysis.recommendation,
+        strengths: cached.analysis.strengths,
+        risks: cached.analysis.risks,
+        anomalies: cached.analysis.anomalies,
+        freshness: scoreFreshness(input),
+        scoreBreakdown: [],
+      };
+      analysisSource = "cache";
+    } else {
+      const job = await loadJobRow(effectiveJobId);
+      if (job) {
+        analysis = analyzeCandidate({ candidate: input, job: toJobRequirement(job), anomalies, currentYear });
+        analysisSource = "computed";
+      }
     }
   }
 
@@ -82,6 +103,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     // Freshness is job-independent and always available.
     freshness: scoreFreshness(input),
     analysis, // null unless a job context (explicit or pipeline) exists
+    analysisSource, // "cache" | "computed" | "none" (Mission 3.5 P2 observability)
     // Communication history + internal notes (recruiter view shows all).
     notes: row.notes.map((n) => ({
       id: n.id,

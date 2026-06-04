@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { authorizeMutation, RECRUITER_ROLES } from "@/lib/auth/guard";
 
 export const runtime = "nodejs";
 
@@ -10,6 +11,9 @@ const Body = z.object({ name: z.string().min(1) });
 // Returns an existing match (so the UI can offer "Attach to X?") or signals
 // that a new client should be created.
 export async function POST(req: NextRequest) {
+  const auth = await authorizeMutation(req, RECRUITER_ROLES);
+  if (!auth.ok) return auth.response;
+
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid body" }, { status: 400 });
 

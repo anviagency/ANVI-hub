@@ -2,11 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { canonicalizeSkill } from "@/lib/ai/skills";
+import { authenticate, authorizeMutation, RECRUITER_ROLES } from "@/lib/auth/guard";
+import { audit } from "@/lib/auth/audit";
+import { getClientIp } from "@/lib/security/request";
 
 export const runtime = "nodejs";
 
-// GET /api/jobs — list open + recent jobs for the Vacancies view.
-export async function GET() {
+// GET /api/jobs — list open + recent jobs for the Vacancies view (auth required).
+export async function GET(req: NextRequest) {
+  const auth = await authenticate(req, RECRUITER_ROLES);
+  if (!auth.ok) return auth.response;
   const jobs = await prisma.job.findMany({
     include: {
       client: true,
@@ -58,8 +63,11 @@ const CreateJob = z.object({
   descriptionRaw: z.string().optional(),
 });
 
-// POST /api/jobs — persist a job from the chat preview (spec §2.2).
+// POST /api/jobs — persist a job from the chat preview (spec §2.2). Auth required.
 export async function POST(req: NextRequest) {
+  const auth = await authorizeMutation(req, RECRUITER_ROLES);
+  if (!auth.ok) return auth.response;
+
   const parsed = CreateJob.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid job", issues: parsed.error.issues }, { status: 400 });
@@ -93,6 +101,8 @@ export async function POST(req: NextRequest) {
     },
     include: { client: true, skills: { include: { skill: true } } },
   });
+
+  await audit({ userId: auth.user.id, action: "job_created", entity: "job", entityId: job.id, meta: { title: job.title }, ip: getClientIp(req) });
 
   return NextResponse.json({
     job: {

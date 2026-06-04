@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { authenticate, authorizeMutation, RECRUITER_ROLES } from "@/lib/auth/guard";
+import { audit } from "@/lib/auth/audit";
+import { getClientIp } from "@/lib/security/request";
 
 export const runtime = "nodejs";
 
@@ -14,8 +17,10 @@ function slugify(name: string): string {
   );
 }
 
-// GET /api/clients — list clients with their open-job counts.
-export async function GET() {
+// GET /api/clients — list clients with their open-job counts (auth required).
+export async function GET(req: NextRequest) {
+  const auth = await authenticate(req, RECRUITER_ROLES);
+  if (!auth.ok) return auth.response;
   const clients = await prisma.client.findMany({
     include: { _count: { select: { jobs: true, placements: true } } },
     orderBy: { createdAt: "asc" },
@@ -42,8 +47,11 @@ const CreateClient = z.object({
   whatsappNumber: z.string().optional(),
 });
 
-// POST /api/clients — create a new client (used by the chat "new client" flow).
+// POST /api/clients — create a new client (auth required).
 export async function POST(req: NextRequest) {
+  const auth = await authorizeMutation(req, RECRUITER_ROLES);
+  if (!auth.ok) return auth.response;
+
   const parsed = CreateClient.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid client" }, { status: 400 });
@@ -73,5 +81,6 @@ export async function POST(req: NextRequest) {
       portalSlug: slug,
     },
   });
+  await audit({ userId: auth.user.id, action: "client_created", entity: "client", entityId: client.id, meta: { name: client.name }, ip: getClientIp(req) });
   return NextResponse.json({ client: { id: client.id, name: client.name, company: client.company } });
 }

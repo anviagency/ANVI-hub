@@ -2,13 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { applyStage, isStage, PipelineTransitionError, STAGES } from "@/lib/pipeline";
+import { authenticate, authorizeMutation, RECRUITER_ROLES } from "@/lib/auth/guard";
+import { audit } from "@/lib/auth/audit";
+import { getClientIp } from "@/lib/security/request";
 import type { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
 
 // GET /api/pipeline?jobId=&stage=&country=&skill=&minRate=&maxRate=&availability=&q=
-// The pipeline board / filtered candidate search (mission item 4).
+// The pipeline board / filtered candidate search (mission item 4). Auth required.
 export async function GET(req: NextRequest) {
+  const auth = await authenticate(req, RECRUITER_ROLES);
+  if (!auth.ok) return auth.response;
   const sp = req.nextUrl.searchParams;
   const jobId = sp.get("jobId") || undefined;
   const stage = sp.get("stage") || undefined;
@@ -71,8 +76,11 @@ const Move = z.object({
   feedback: z.string().optional(),
 });
 
-// POST /api/pipeline — move a candidate to a stage (transition + event + notify).
+// POST /api/pipeline — move a candidate to a stage (transition + event + notify). Auth required.
 export async function POST(req: NextRequest) {
+  const auth = await authorizeMutation(req, RECRUITER_ROLES);
+  if (!auth.ok) return auth.response;
+
   const parsed = Move.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   const { candidateId, jobId, stage, feedback } = parsed.data;
@@ -80,6 +88,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await applyStage({ candidateId, jobId, to: stage, actor: "recruiter", feedback });
+    await audit({ userId: auth.user.id, action: "pipeline_move", entity: "candidate", entityId: candidateId, meta: { jobId, from: result.from, to: result.to }, ip: getClientIp(req) });
     return NextResponse.json({ result });
   } catch (e) {
     if (e instanceof PipelineTransitionError) {

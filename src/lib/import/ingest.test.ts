@@ -1,5 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { dedupeKeyFor, normalizeAvailability, parseSkills, mapRow } from "./ingest";
+import { dedupeKeyFor, normalizeAvailability, parseSkills, mapRow, deriveCareerStartYear } from "./ingest";
+
+describe("deriveCareerStartYear (P2 fallback)", () => {
+  const now = new Date("2026-06-04T00:00:00Z");
+  it("derives a career-start year from total years", () => {
+    expect(deriveCareerStartYear(8, now)).toBe(2018);
+  });
+  it("returns null when years are missing or zero", () => {
+    expect(deriveCareerStartYear(null, now)).toBeNull();
+    expect(deriveCareerStartYear(0, now)).toBeNull();
+  });
+});
 
 describe("dedupeKeyFor", () => {
   it("prefers email (case-insensitive)", () => {

@@ -6,6 +6,7 @@ import { detectAnomalies } from "@/lib/matching/anomaly";
 import { analyzeCandidate } from "@/lib/matching/scoring";
 import { applyStage, STAGE_LABEL } from "@/lib/pipeline";
 import { notify } from "@/lib/notify";
+import { getFreshAnalysis } from "@/lib/matching/cache";
 import type { PipelineStage } from "@prisma/client";
 import type { Risk, Strength } from "@/lib/types";
 
@@ -23,21 +24,28 @@ export interface CreateShareInput {
   clientId?: string | null;
   label?: string | null;
   expiresAt?: Date | null;
+  createdById?: string | null;
   candidates: { candidateId: string; shareNotes?: boolean }[];
 }
+
+// Share links expire by default (Mission 3.5 P1) — a forwarded link must not be
+// a permanent data window. Override with an explicit expiresAt.
+const DEFAULT_SHARE_TTL_DAYS = 30;
 
 export async function createShareLink(input: CreateShareInput) {
   const job = await prisma.job.findUnique({ where: { id: input.jobId } });
   if (!job) throw new ShareError("job_not_found");
 
   const token = generateToken();
+  const expiresAt = input.expiresAt ?? new Date(Date.now() + DEFAULT_SHARE_TTL_DAYS * 86400000);
   const link = await prisma.shareLink.create({
     data: {
       token,
       jobId: input.jobId,
       clientId: input.clientId ?? job.clientId ?? null,
       label: input.label ?? null,
-      expiresAt: input.expiresAt ?? null,
+      expiresAt,
+      createdById: input.createdById ?? null,
       candidates: {
         create: input.candidates.map((c) => ({
           candidateId: c.candidateId,
@@ -117,7 +125,11 @@ export async function resolveShareLink(token: string): Promise<ResolvedShareLink
   if (link.revoked) throw new ShareError("revoked");
   if (link.expiresAt && link.expiresAt.getTime() < Date.now()) throw new ShareError("expired");
 
+  // Track views (best-effort, non-blocking) for the audit trail.
+  void prisma.shareLink.update({ where: { id: link.id }, data: { viewCount: { increment: 1 }, lastViewedAt: new Date() } }).catch(() => {});
+
   const jobRow = await loadJobRow(link.jobId);
+  const jobMeta = await prisma.job.findUnique({ where: { id: link.jobId }, select: { updatedAt: true } });
   const currentYear = new Date().getUTCFullYear();
 
   const candidates: ClientSafeCandidate[] = [];
@@ -130,9 +142,14 @@ export async function resolveShareLink(token: string): Promise<ResolvedShareLink
 
     const input = toCandidateInput(row);
     const anomalies = detectAnomalies(input, { currentYear });
-    const analysis = jobRow
-      ? analyzeCandidate({ candidate: input, job: toJobRequirement(jobRow), anomalies, currentYear })
-      : null;
+    // Prefer the candidate_analysis cache when fresh (Mission 3.5 P2).
+    let analysis: { matchScore: number; recommendation: string; strengths: Strength[]; risks: Risk[] } | null = null;
+    if (jobRow && jobMeta) {
+      const cached = await getFreshAnalysis(row.id, link.jobId, row.updatedAt, jobMeta.updatedAt);
+      analysis = cached.hit && cached.analysis
+        ? cached.analysis
+        : analyzeCandidate({ candidate: input, job: toJobRequirement(jobRow), anomalies, currentYear });
+    }
 
     const [submission, pipeline] = await Promise.all([
       prisma.submission.findUnique({ where: { jobId_candidateId: { jobId: link.jobId, candidateId: row.id } } }),
@@ -217,6 +234,9 @@ export async function recordDecision(token: string, candidateId: string, decisio
   return { decision, stage: result.to };
 }
 
-export async function revokeShareLink(token: string): Promise<void> {
-  await prisma.shareLink.update({ where: { token }, data: { revoked: true } });
+export async function revokeShareLink(token: string, revokedBy?: string): Promise<void> {
+  await prisma.shareLink.update({
+    where: { token },
+    data: { revoked: true, revokedAt: new Date(), revokedBy: revokedBy ?? null },
+  });
 }

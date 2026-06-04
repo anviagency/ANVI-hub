@@ -43,13 +43,30 @@ export function ImportView() {
     setBusy(true);
     setError(null);
     try {
+      // Import now runs as a background job (Mission 3.5 P4): enqueue, then poll.
       const res = await api.importCommit(file, mapping, "Excel import");
-      if (res.error) {
-        setError(res.error);
+      if (res.error || !res.taskId) {
+        setError(res.error ?? "Import failed.");
+        setBusy(false);
         return;
       }
-      setSummary(res.summary);
-      setStep("done");
+      const taskId = res.taskId;
+      for (let i = 0; i < 120; i++) {
+        await new Promise((r) => setTimeout(r, 800));
+        const st = await api.importStatus(taskId);
+        if (st.status === "done" && st.summary) {
+          setSummary(st.summary);
+          setStep("done");
+          setBusy(false);
+          return;
+        }
+        if (st.status === "failed") {
+          setError(st.error || "Import job failed.");
+          setBusy(false);
+          return;
+        }
+      }
+      setError("Import still running — is the worker (npm run worker) started? Check back shortly.");
     } catch {
       setError("Import failed.");
     } finally {

@@ -86,6 +86,33 @@ Latest benchmark: **100% recall** and **top-1 correct** on every scenario, **5/5
 
 Hardened in this mission: data-**freshness scoring** (green/yellow/amber/red, used in ranking — `src/lib/matching/freshness.ts`), **explainable score breakdown** ("Why this score" in the UI), and anomaly engine extended with **duplicate** + **suspicious-employment-pattern** detection. The client simulation also caught and fixed a real internal-notes leak across the client boundary.
 
+## Production readiness (mission 3.5)
+
+Auth, async infra, and scale hardening — closing the CTO-audit blockers.
+
+```bash
+npm run worker            # background worker: Telegram delivery, imports, analysis
+npm run loadtest          # 100k/250k/500k scale test -> reports/load-test.md + query-analysis.md
+npm run validate-intelligence   # anomaly-rule coverage + cache + imports -> reports/intelligence-validation.md
+```
+
+- **Auth/authz everywhere.** Every `/api/*` route requires a session (scrypt
+  passwords, httpOnly SameSite=Strict cookies); recruiter vs client vs admin roles;
+  CSRF same-origin check on mutations; append-only `audit_log`. **No unauthenticated
+  writes remain.** Sign in at `/login` — seed users: `admin@anvi.com / admin1234`,
+  `daria@anvi.com / recruiter1234`, `andy@northwind.example / client1234`.
+- **Share links** expire (30d default), are revocable (`POST /api/share/:token/revoke`),
+  track views, and are rate-limited. Internal notes/cost/anomalies never cross to clients.
+- **Async by default.** Telegram delivery, imports, and AI analysis run on a
+  Postgres-backed queue (`npm run worker`) — no request blocks on external HTTP.
+- **Cache is live.** `candidate_analysis` is read by the candidate workspace, client
+  portal, and `GET /api/jobs/:id/match`, and invalidated when the candidate/job changes.
+- **Measured scale** (`reports/load-test.md`): Stage-1 query ~5ms and match runtime ~17ms
+  at **500k candidates**, with flat memory (bounded by the funnel cap).
+
+Reports: `reports/security-audit.md`, `load-test.md`, `query-analysis.md`,
+`intelligence-validation.md`, `remaining-production-risks.md`.
+
 ## Out of scope (later phases)
 WhatsApp Assistant (§7), Timeless interview capture (§5 — `Interview` table exists, no
 provider wired), and the broader ongoing-workforce Client Portal (§6). `Submission`,

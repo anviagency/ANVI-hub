@@ -62,6 +62,12 @@ export function parseSkills(v: string): string[] {
  * Dedupe identity. Email (lowercased) is authoritative; otherwise name+country.
  * Returns null when there isn't even a name (the row is unusable).
  */
+/** Derive a career-start year from total years of experience (P2 fallback). */
+export function deriveCareerStartYear(totalYears: number | null | undefined, now: Date = new Date()): number | null {
+  if (totalYears == null || totalYears <= 0) return null;
+  return now.getUTCFullYear() - Math.round(totalYears);
+}
+
 export function dedupeKeyFor(c: { email?: string | null; fullName?: string | null; country?: string | null }): string | null {
   const email = (c.email ?? "").trim().toLowerCase();
   if (email) return `email:${email}`;
@@ -173,6 +179,9 @@ export async function ingestRows(
           availability: norm.availability,
           linkedinUrl: norm.linkedinUrl ?? existing.linkedinUrl,
           source: norm.source ?? existing.source,
+          // Derive careerStartYear from years-of-experience so tenure anomaly
+          // rules fire on imported candidates (Mission 3.5 P2).
+          careerStartYear: existing.careerStartYear ?? deriveCareerStartYear(norm.totalYears ?? existing.totalYears),
           importBatchId: batch.id,
           // updatedAt is bumped automatically (@updatedAt) — "track last updated date".
           skills: {
@@ -210,6 +219,7 @@ export async function ingestRows(
           availability: norm.availability,
           linkedinUrl: norm.linkedinUrl,
           source: norm.source ?? opts.source ?? "import",
+          careerStartYear: deriveCareerStartYear(norm.totalYears),
           dedupeKey: key,
           importBatchId: batch.id,
           skills: { create: skillCreate },

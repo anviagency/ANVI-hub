@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { recordDecision, ShareError } from "@/lib/share";
+import { rateLimit } from "@/lib/security/rate-limit";
+import { getClientIp } from "@/lib/security/request";
+import { audit } from "@/lib/auth/audit";
 
 export const runtime = "nodejs";
 
@@ -11,14 +14,19 @@ const Body = z.object({
 });
 
 // POST /api/share/:token/decision — PUBLIC client action (approve / reject /
-// request interview). Authorized by the token; rejects candidates not on the link.
+// request interview). Token-authorized, rate-limited, audited.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
+  const ip = getClientIp(req);
+  const rl = rateLimit(`share-decision:${ip}`, 30, 60_000);
+  if (!rl.allowed) return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "invalid_body" }, { status: 400 });
 
   try {
     const result = await recordDecision(token, parsed.data.candidateId, parsed.data.decision, parsed.data.feedback);
+    await audit({ actorType: "client", action: `client_${parsed.data.decision}`, entity: "candidate", entityId: parsed.data.candidateId, meta: { token }, ip });
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
     if (e instanceof ShareError) {

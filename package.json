@@ -20,7 +20,10 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma migrate reset --force",
     "benchmark": "tsx scripts/benchmark.ts",
-    "client-sim": "tsx scripts/client-sim.ts"
+    "client-sim": "tsx scripts/client-sim.ts",
+    "worker": "tsx scripts/worker.ts",
+    "validate-intelligence": "tsx scripts/validate-intelligence.ts",
+    "loadtest": "tsx scripts/loadtest.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

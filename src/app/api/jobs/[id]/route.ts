@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { authenticate, RECRUITER_ROLES } from "@/lib/auth/guard";
 
 export const runtime = "nodejs";
 
-// GET /api/jobs/:id — a single job with its skills and client.
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+// GET /api/jobs/:id — a single job with its skills and client (auth required).
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await authenticate(req, RECRUITER_ROLES);
+  if (!auth.ok) return auth.response;
   const { id } = await params;
   const job = await prisma.job.findUnique({
     where: { id },

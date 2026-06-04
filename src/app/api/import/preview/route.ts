@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseSpreadsheet, suggestMapping, IMPORT_FIELDS } from "@/lib/import/parse";
+import { authorizeMutation, RECRUITER_ROLES } from "@/lib/auth/guard";
 
 export const runtime = "nodejs";
 
-// POST /api/import/preview — multipart upload; returns detected columns, sample
+// POST /api/import/preview — auth-required; returns detected columns, sample
 // rows, and a suggested field mapping for the recruiter to confirm.
 export async function POST(req: NextRequest) {
+  const auth = await authorizeMutation(req, RECRUITER_ROLES);
+  if (!auth.ok) return auth.response;
+
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
   if (!file || typeof file === "string") {

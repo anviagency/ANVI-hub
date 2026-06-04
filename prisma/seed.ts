@@ -1,5 +1,6 @@
 import { PrismaClient, Availability } from "@prisma/client";
 import { SKILL_CATALOG } from "../src/lib/ai/skills";
+import { hashPassword } from "../src/lib/auth/password";
 
 const prisma = new PrismaClient();
 
@@ -454,6 +455,10 @@ async function main() {
   console.log("⏳ Seeding ANVI database…");
 
   // Clear (respect FK order).
+  await prisma.session.deleteMany();
+  await prisma.auditLog.deleteMany();
+  await prisma.backgroundJob.deleteMany();
+  await prisma.user.deleteMany();
   await prisma.shareLinkCandidate.deleteMany();
   await prisma.shareLink.deleteMany();
   await prisma.notification.deleteMany();
@@ -522,6 +527,12 @@ async function main() {
     },
   });
   console.log("  ✓ 3 clients");
+
+  // Users (admin / recruiter / client). Dev passwords — change in production.
+  await prisma.user.create({ data: { email: "admin@anvi.com", name: "ANVI Admin", role: "admin", passwordHash: await hashPassword("admin1234") } });
+  await prisma.user.create({ data: { email: "daria@anvi.com", name: "Daria Levin", role: "recruiter", passwordHash: await hashPassword("recruiter1234") } });
+  await prisma.user.create({ data: { email: "andy@northwind.example", name: "Andy Kessler", role: "client", clientId: andy.id, passwordHash: await hashPassword("client1234") } });
+  console.log("  ✓ 3 users (admin@anvi.com / daria@anvi.com / andy@northwind.example)");
 
   // Candidates.
   const candidateIdByName = new Map<string, string>();

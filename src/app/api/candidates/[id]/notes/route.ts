@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { authorizeMutation, RECRUITER_ROLES } from "@/lib/auth/guard";
+import { audit } from "@/lib/auth/audit";
+import { getClientIp } from "@/lib/security/request";
 
 export const runtime = "nodejs";
 
@@ -16,6 +19,9 @@ const Body = z.object({
 
 // POST /api/candidates/:id/notes — add a note / communication-history entry.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await authorizeMutation(req, RECRUITER_ROLES);
+  if (!auth.ok) return auth.response;
+
   const { id } = await params;
   const candidate = await prisma.candidate.findUnique({ where: { id } });
   if (!candidate) return NextResponse.json({ error: "Candidate not found" }, { status: 404 });
@@ -46,6 +52,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (data.kind !== "note") {
     await prisma.candidate.update({ where: { id }, data: { lastContactedAt: new Date() } });
   }
+  await audit({ userId: auth.user.id, action: "note_added", entity: "candidate", entityId: id, meta: { kind: data.kind, internal: data.internal }, ip: getClientIp(req) });
 
   return NextResponse.json({ note: { id: note.id, kind: note.kind, body: note.body, internal: note.internal, createdAt: note.createdAt } });
 }

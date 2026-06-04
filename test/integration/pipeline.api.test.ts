@@ -3,32 +3,36 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { GET, POST } from "@/app/api/pipeline/route";
 import { makeClient, makeJob, makeCandidate, cleanupByPrefix } from "./fixtures";
+import { createTestUser, authedPost, authedGet, cleanupAuth } from "./auth-helper";
 
 const P = "ZZPIPE";
 let jobId = "";
 let candId = "";
 let otherId = "";
+let token = "";
 
-function postReq(body: unknown) {
-  return new NextRequest("http://localhost/api/pipeline", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
-function getReq(qs: string) {
-  return new NextRequest(`http://localhost/api/pipeline?${qs}`);
-}
+const postReq = (body: unknown) => authedPost("http://localhost/api/pipeline", token, body);
+const getReq = (qs: string) => authedGet(`http://localhost/api/pipeline?${qs}`, token);
 
 describe("pipeline API (DB)", () => {
   beforeAll(async () => {
     await cleanupByPrefix(P);
+    await cleanupAuth(P);
+    token = (await createTestUser("recruiter", P)).token;
     const clientId = await makeClient(P);
     jobId = await makeJob({ prefix: P, clientId, skills: [{ name: "React", required: true }] });
     candId = await makeCandidate({ prefix: P, name: "Alpha", country: "Poland", clientRate: 30, skills: [{ name: "React", years: 5 }] });
     otherId = await makeCandidate({ prefix: P, name: "Beta", country: "Ukraine", clientRate: 50, skills: [{ name: "React", years: 4 }] });
   });
-  afterAll(() => cleanupByPrefix(P));
+  afterAll(async () => {
+    await cleanupByPrefix(P);
+    await cleanupAuth(P);
+  });
+
+  it("rejects an unauthenticated move with 401", async () => {
+    const res = await POST(new NextRequest("http://localhost/api/pipeline", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ candidateId: candId, jobId, stage: "screened" }) }));
+    expect(res.status).toBe(401);
+  });
 
   it("moves a candidate through a valid transition and records event + notification", async () => {
     const res = await POST(postReq({ candidateId: candId, jobId, stage: "screened" }));

@@ -100,10 +100,18 @@ export const api = {
     fd.append("mapping", JSON.stringify(mapping));
     if (source) fd.append("source", source);
     return fetch("/api/import/commit", { method: "POST", body: fd }).then((r) => r.json()) as Promise<{
-      summary: ImportSummary;
+      taskId?: string;
+      rows?: number;
+      status?: string;
       error?: string;
     }>;
   },
+  importStatus: (taskId: string) =>
+    fetch(`/api/import/status/${taskId}`).then((r) => r.json()) as Promise<{
+      status: string;
+      summary: ImportSummary | null;
+      error?: string | null;
+    }>,
 
   // Pipeline
   pipeline: (params: Record<string, string>) => {
