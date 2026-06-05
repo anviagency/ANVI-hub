@@ -27,15 +27,17 @@ export const STAGE_LABEL: Record<PipelineStage, string> = {
 };
 
 // Allowed forward/branch transitions. Reject is reachable from any active stage;
-// rejected can be re-opened back into screening.
+// rejected can be re-opened. A client can approve from ANY post-screening stage
+// (screened / sent_to_client / interview) — Mission 5.1 P0: the real-world close
+// is "screen → client approves", which must succeed.
 const ALLOWED: Record<PipelineStage, PipelineStage[]> = {
   new: ["screened", "sent_to_client", "rejected"],
-  screened: ["sent_to_client", "interview", "rejected", "new"],
+  screened: ["sent_to_client", "interview", "approved", "rejected", "new"],
   sent_to_client: ["interview", "approved", "rejected", "screened"],
   interview: ["approved", "rejected", "sent_to_client"],
   approved: ["hired", "rejected", "interview"],
-  rejected: ["new", "screened"],
-  hired: [],
+  rejected: ["new", "screened", "sent_to_client"],
+  hired: ["rejected"],
 };
 
 export function canTransition(from: PipelineStage, to: PipelineStage): boolean {

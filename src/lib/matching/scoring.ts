@@ -9,6 +9,7 @@ import {
 } from "@/lib/types";
 import { careerYears } from "@/lib/matching/anomaly";
 import { scoreFreshness } from "@/lib/matching/freshness";
+import { scoreAvailability } from "@/lib/matching/availability";
 
 // Match scoring + strengths/risks generation (spec §3.3, §4.1, §4.2).
 // Pure and deterministic — unit-testable without DB/network. When Claude is
@@ -167,6 +168,14 @@ export function analyzeCandidate(inputs: ScoreInputs): CandidateAnalysisResult {
   score += freshness.rankingDelta;
   add("Freshness", freshness.rankingDelta, `${freshness.label} · updated ${freshness.daysSinceUpdated}d ago`);
 
+  // --- Availability confidence (Mission 5.1 P5) ---
+  const availability = scoreAvailability(
+    { availability: c.availability, availabilityConfirmedAt: c.availabilityConfirmedAt, lastContactedAt: c.lastContactedAt, lastScreenedAt: c.lastScreenedAt, updatedAt: c.updatedAt },
+    now
+  );
+  score += availability.rankingDelta;
+  add("Availability confidence", availability.rankingDelta, `${availability.score}% (${availability.band})`);
+
   // --- Anomaly penalty ---
   let anomalyPenalty = 0;
   for (const a of anomalies) {
@@ -187,6 +196,7 @@ export function analyzeCandidate(inputs: ScoreInputs): CandidateAnalysisResult {
     risks: buildRisks(c, job, cov, now),
     anomalies,
     freshness,
+    availability,
     scoreBreakdown: breakdown,
   };
 }

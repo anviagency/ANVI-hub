@@ -1,6 +1,8 @@
 // Shared domain types for the ANVI Recruiter Copilot slice.
 // These are framework-agnostic plain objects so the matching/anomaly/scoring
 // engines can be unit-tested without a database.
+import type { AvailabilityResult } from "@/lib/matching/availability";
+export type { AvailabilityResult } from "@/lib/matching/availability";
 
 export interface ParsedSkill {
   name: string;
@@ -72,6 +74,7 @@ export interface CandidateInput {
   updatedAt: Date;
   lastContactedAt?: Date | null;
   lastScreenedAt?: Date | null;
+  availabilityConfirmedAt?: Date | null;
   skills: CandidateSkillInput[];
   employments: EmploymentRecord[];
 }
@@ -129,5 +132,6 @@ export interface CandidateAnalysisResult {
   risks: Risk[];
   anomalies: Anomaly[];
   freshness: FreshnessResult;
+  availability: AvailabilityResult;
   scoreBreakdown: ScoreComponent[];
 }

@@ -58,12 +58,19 @@ export async function handleWhatsAppInbound(payload: unknown, ip?: string): Prom
         const job = await prisma.job.findUnique({ where: { id: jobId }, include: { client: true } });
         const candidate = await prisma.candidate.findUnique({ where: { id: candidateId } });
         if (!job || !candidate) {
-          processedOk = false; errorMsg = "candidate_or_job_not_found";
+          processedOk = false; errorMsg = "candidate_or_job_not_found"; // permanent — keep claim, no retry
         } else if (!numbersMatch(job.client?.whatsappNumber, m.fromNumber)) {
-          processedOk = false; errorMsg = "number_mismatch"; // sender is not this job's client
+          processedOk = false; errorMsg = "number_mismatch"; // permanent — sender is not this job's client
         } else {
-          const d = await applyClientDecision({ candidateId, jobId, decision: action as ClientDecision, via: "whatsapp", ip });
-          result.decisions.push({ candidateId, jobId, decision: d.decision, stage: d.stage });
+          try {
+            const d = await applyClientDecision({ candidateId, jobId, decision: action as ClientDecision, via: "whatsapp", ip });
+            result.decisions.push({ candidateId, jobId, decision: d.decision, stage: d.stage });
+          } catch (e) {
+            // UNEXPECTED failure (e.g. transient DB): release the idempotency claim so
+            // a provider retry can reprocess — never permanently drop an approval.
+            await prisma.webhookEvent.delete({ where: { provider_externalId: { provider: "whatsapp", externalId: m.messageId } } }).catch(() => {});
+            throw e;
+          }
         }
       }
     }

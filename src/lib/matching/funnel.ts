@@ -38,6 +38,7 @@ export function toCandidateInput(row: CandidateRow): CandidateInput {
     updatedAt: row.updatedAt,
     lastContactedAt: row.lastContactedAt ?? null,
     lastScreenedAt: row.lastScreenedAt ?? null,
+    availabilityConfirmedAt: row.availabilityConfirmedAt ?? null,
     skills: row.skills.map((cs) => ({ name: cs.skill.canonicalName, years: cs.years })),
     employments: row.employments.map(toEmploymentRecord),
   };
@@ -101,6 +102,9 @@ export async function stage1Filter(job: JobRow, cap: number): Promise<CandidateR
 
   const rows = await prisma.candidate.findMany({
     where: {
+      // Never match soft-deleted or archived candidates (Mission 5.1 P1).
+      deletedAt: null,
+      archivedAt: null,
       // Availability: exclude already-placed talent.
       availability: { not: "placed" },
       // At least one of the job's skills present (coarse overlap).

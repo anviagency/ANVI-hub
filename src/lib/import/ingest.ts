@@ -157,7 +157,11 @@ export async function ingestRows(
     }
 
     const allSkillIds = await ensureSkillIds(norm.skills);
-    const skillCreate = norm.skills.map((n) => ({ skillId: allSkillIds.get(n)!, years: 0 }));
+    // Imports rarely carry per-skill years. Default to the candidate's total
+    // experience instead of 0 — 0 fails every min-years filter and silently
+    // makes imported candidates unmatchable (Mission 5 review finding).
+    const defaultSkillYears = norm.totalYears && norm.totalYears > 0 ? Math.round(norm.totalYears) : 2;
+    const skillCreate = norm.skills.map((n) => ({ skillId: allSkillIds.get(n)!, years: defaultSkillYears }));
 
     const existing = await prisma.candidate.findUnique({ where: { dedupeKey: key } });
 

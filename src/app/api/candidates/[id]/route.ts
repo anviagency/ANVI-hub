@@ -5,10 +5,64 @@ import { loadJobRow } from "@/lib/jobs";
 import { detectAnomalies } from "@/lib/matching/anomaly";
 import { analyzeCandidate } from "@/lib/matching/scoring";
 import { scoreFreshness } from "@/lib/matching/freshness";
+import { scoreAvailability } from "@/lib/matching/availability";
 import { getFreshAnalysis } from "@/lib/matching/cache";
-import { authenticate, RECRUITER_ROLES } from "@/lib/auth/guard";
+import { authenticate, authorizeMutation, RECRUITER_ROLES } from "@/lib/auth/guard";
+import { recordChange } from "@/lib/crud";
+import { getClientIp } from "@/lib/security/request";
+import { z } from "zod";
 
 export const runtime = "nodejs";
+
+const EditBody = z.object({
+  fullName: z.string().min(1).optional(),
+  title: z.string().nullable().optional(),
+  email: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  country: z.string().nullable().optional(),
+  location: z.string().nullable().optional(),
+  englishLevel: z.string().nullable().optional(),
+  totalYears: z.number().nullable().optional(),
+  clientRate: z.number().nullable().optional(),
+  salaryExpectation: z.number().nullable().optional(),
+  availability: z.enum(["available", "on_hold", "placed"]).optional(),
+  availabilityNote: z.string().nullable().optional(),
+  linkedinUrl: z.string().nullable().optional(),
+  source: z.string().nullable().optional(),
+  aiSummary: z.string().nullable().optional(),
+  confirmAvailability: z.boolean().optional(), // stamps availabilityConfirmedAt = now
+});
+
+// PATCH /api/candidates/:id — edit a candidate (Mission 5.1 P1).
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await authorizeMutation(req, RECRUITER_ROLES);
+  if (!auth.ok) return auth.response;
+  const { id } = await params;
+  const existing = await prisma.candidate.findUnique({ where: { id } });
+  if (!existing || existing.deletedAt) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const parsed = EditBody.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: "invalid_body", issues: parsed.error.issues }, { status: 400 });
+  const { confirmAvailability, ...fields } = parsed.data;
+
+  const data: Record<string, unknown> = { ...fields };
+  if (confirmAvailability) data.availabilityConfirmedAt = new Date();
+  await prisma.candidate.update({ where: { id }, data });
+  await recordChange({ action: "candidate_edited", entity: "candidate", entityId: id, candidateId: id, userId: auth.user.id, ip: getClientIp(req), meta: { fields: Object.keys(fields), confirmedAvailability: !!confirmAvailability } });
+  return NextResponse.json({ ok: true });
+}
+
+// DELETE /api/candidates/:id — soft delete (recoverable; never hard-deleted).
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await authorizeMutation(req, RECRUITER_ROLES);
+  if (!auth.ok) return auth.response;
+  const { id } = await params;
+  const existing = await prisma.candidate.findUnique({ where: { id } });
+  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  await prisma.candidate.update({ where: { id }, data: { deletedAt: new Date() } });
+  await recordChange({ action: "candidate_deleted", entity: "candidate", entityId: id, candidateId: id, userId: auth.user.id, ip: getClientIp(req) });
+  return NextResponse.json({ ok: true, deleted: true });
+}
 
 // GET /api/candidates/:id?jobId=... — the candidate workspace / data room (spec §4.4).
 // Anomalies are job-independent and always computed; full strengths/risks/score
@@ -27,7 +81,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       skills: { include: { skill: true } },
       employments: { orderBy: { startDate: "desc" } },
       events: { orderBy: { createdAt: "desc" }, take: 20 },
-      notes: { orderBy: { createdAt: "desc" } },
+      notes: { where: { deletedAt: null }, orderBy: { createdAt: "desc" } },
       pipelines: { include: { job: { include: { client: true } } } },
       interviews: { orderBy: { scheduledFor: "desc" } },
     },
@@ -84,6 +138,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       clientRate: row.clientRate,
       salaryExpectation: row.salaryExpectation,
       source: row.source,
+      email: row.email,
+      phone: row.phone,
+      linkedinUrl: row.linkedinUrl,
+      archived: Boolean(row.archivedAt),
       aiSummary: row.aiSummary,
       linkedinTitle: row.linkedinTitle,
       createdAt: row.createdAt,
@@ -102,6 +160,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     anomalies,
     // Freshness is job-independent and always available.
     freshness: scoreFreshness(input),
+    // Availability confidence (Mission 5.1 P5) + communication health (P4).
+    availabilityScore: scoreAvailability({ availability: input.availability, availabilityConfirmedAt: input.availabilityConfirmedAt, lastContactedAt: input.lastContactedAt, lastScreenedAt: input.lastScreenedAt, updatedAt: input.updatedAt }),
+    communicationHealth: commHealth(row.lastContactedAt),
     analysis, // null unless a job context (explicit or pipeline) exists
     analysisSource, // "cache" | "computed" | "none" (Mission 3.5 P2 observability)
     // Communication history + internal notes (recruiter view shows all).
@@ -121,7 +182,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       stage: p.stage,
       enteredStageAt: p.enteredStageAt,
     })),
-    // Interview summaries + video links (TimeOS/Timeless).
+    // Interview summaries + video links (TimeOS/Timeless) + scheduling (Mission 5.1 P3).
     interviews: row.interviews.map((iv) => ({
       id: iv.id,
       summary: iv.summary,
@@ -132,6 +193,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       provider: iv.provider,
       meetingTag: iv.meetingTag,
       meetingTime: iv.meetingTime,
+      meetingUrl: iv.meetingUrl,
+      meetingProvider: iv.meetingProvider,
+      timezone: iv.timezone,
+      durationMins: iv.durationMins,
+      status: iv.status,
       webhookStatus: iv.webhookStatus,
       scheduledFor: iv.scheduledFor,
       completedAt: iv.completedAt,
@@ -144,4 +210,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       createdAt: ev.createdAt,
     })),
   });
+}
+
+// Communication health (Mission 5.1 P4): 🟢 contacted within ~1 day, 🟡 within 30
+// days, 🔴 30+ days or never.
+function commHealth(lastContactedAt: Date | null): { band: "green" | "yellow" | "red"; daysSinceContact: number | null } {
+  if (!lastContactedAt) return { band: "red", daysSinceContact: null };
+  const days = Math.floor((Date.now() - lastContactedAt.getTime()) / 86400000);
+  const band = days <= 1 ? "green" : days <= 30 ? "yellow" : "red";
+  return { band, daysSinceContact: days };
 }

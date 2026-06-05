@@ -27,6 +27,14 @@ export function authedGet(url: string, token: string): NextRequest {
   return new NextRequest(url, { method: "GET", headers: { cookie: `${SESSION_COOKIE}=${token}` } });
 }
 
+export function authedReq(method: string, url: string, token: string, body?: unknown): NextRequest {
+  return new NextRequest(url, {
+    method,
+    headers: { "content-type": "application/json", cookie: `${SESSION_COOKIE}=${token}` },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+}
+
 export async function cleanupAuth(prefix = "AUTHTEST"): Promise<void> {
   await prisma.user.deleteMany({ where: { name: { startsWith: prefix } } });
 }

@@ -15,6 +15,12 @@ describe("pipeline stage machine", () => {
     expect(canTransition("approved", "hired")).toBe(true);
   });
 
+  it("allows a client to approve from any post-screening stage (Mission 5.1 P0)", () => {
+    expect(canTransition("screened", "approved")).toBe(true);
+    expect(canTransition("sent_to_client", "approved")).toBe(true);
+    expect(canTransition("interview", "approved")).toBe(true);
+  });
+
   it("allows rejection from any active stage", () => {
     expect(canTransition("new", "rejected")).toBe(true);
     expect(canTransition("sent_to_client", "rejected")).toBe(true);

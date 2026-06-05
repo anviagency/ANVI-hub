@@ -31,8 +31,24 @@ export interface ApplyClientDecisionInput {
   ip?: string;
 }
 
-export async function applyClientDecision(input: ApplyClientDecisionInput): Promise<{ decision: ClientDecision; stage: PipelineStage }> {
+// "Already settled" states that make a re-applied decision a safe no-op (idempotency).
+const SETTLED_FOR: Record<ClientDecision, PipelineStage[]> = {
+  approve: ["approved", "hired"],
+  reject: ["rejected"],
+  request_interview: ["interview", "approved", "hired"],
+};
+
+export async function applyClientDecision(input: ApplyClientDecisionInput): Promise<{ decision: ClientDecision; stage: PipelineStage; idempotent?: boolean }> {
   const to = DECISION_STAGE[input.decision];
+
+  // Idempotency (Mission 5.1 P0): if the candidate is already in a stage that
+  // satisfies this decision, do nothing and report success — a duplicate or
+  // out-of-order client tap must never error or double-write the timeline.
+  const existing = await prisma.pipeline.findUnique({ where: { candidateId_jobId: { candidateId: input.candidateId, jobId: input.jobId } } });
+  if (existing && SETTLED_FOR[input.decision].includes(existing.stage)) {
+    return { decision: input.decision, stage: existing.stage, idempotent: true };
+  }
+
   // applyStage updates pipeline stage, syncs the Submission, fires notifications.
   const result = await applyStage({ candidateId: input.candidateId, jobId: input.jobId, to, actor: "client", feedback: input.reason });
 

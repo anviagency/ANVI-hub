@@ -67,6 +67,41 @@ export function CandidateProfile({
     }
   }
 
+  // Quick-action launcher: opens the channel AND logs the contact (Mission 5.1 P4).
+  async function logContact(kind: "call" | "email" | "whatsapp", href: string | null) {
+    if (href) window.open(href, "_blank");
+    await api.addNote(candidateId, { body: `${kind} initiated from ANVI`, kind, internal: false, jobId });
+    load();
+  }
+  async function confirmAvailability() {
+    await api.editCandidate(candidateId, { confirmAvailability: true });
+    load();
+  }
+  async function archiveOrRestore() {
+    if (data?.candidate.archived) await api.restoreCandidate(candidateId);
+    else await api.archiveCandidate(candidateId);
+    load();
+  }
+  async function removeCandidate() {
+    if (!confirm("Soft-delete this candidate? It can be restored later.")) return;
+    await api.deleteCandidate(candidateId);
+    onBack();
+  }
+  async function rescheduleIv(id: string) {
+    const when = new Date(Date.now() + 4 * 86400000).toISOString();
+    await api.rescheduleInterview(id, when);
+    load();
+  }
+  async function cancelIv(id: string) {
+    const reason = prompt("Cancel reason?") || undefined;
+    await api.cancelInterview(id, reason);
+    load();
+  }
+  async function delNote(id: string) {
+    await api.deleteNote(id);
+    load();
+  }
+
   async function share(forJobId: string) {
     setShareMsg(null);
     const res = await api.createShare(forJobId, [{ candidateId, shareNotes: false }], "Quick share");
@@ -111,6 +146,28 @@ export function CandidateProfile({
             {data.freshness && (
               <FreshnessBadge band={data.freshness.band} label={data.freshness.label} days={data.freshness.daysSinceUpdated} />
             )}
+            {data.availabilityScore && (
+              <Pill tone={data.availabilityScore.band === "high" ? "good" : data.availabilityScore.band === "low" ? "bad" : "warn"}>
+                Availability {data.availabilityScore.score}%
+              </Pill>
+            )}
+            {data.communicationHealth && (
+              <Pill tone={data.communicationHealth.band === "green" ? "good" : data.communicationHealth.band === "yellow" ? "warn" : "bad"}>
+                {data.communicationHealth.daysSinceContact == null ? "never contacted" : `contacted ${data.communicationHealth.daysSinceContact}d ago`}
+              </Pill>
+            )}
+            {c.source && <Pill tone="default">{c.source}</Pill>}
+          </div>
+
+          {/* Quick actions — one click to reach the candidate, logged automatically (P4) */}
+          <div className="qa-row" style={{ marginTop: 12 }}>
+            <button className="qa" onClick={() => logContact("call", c.phone ? `tel:${c.phone}` : null)}><Icon name="user" size={13} /> Call</button>
+            <button className="qa" onClick={() => logContact("email", c.email ? `mailto:${c.email}` : null)}><Icon name="message" size={13} /> Email</button>
+            <button className="qa" onClick={() => logContact("whatsapp", c.phone ? `https://wa.me/${c.phone.replace(/\D/g, "")}` : null)}><Icon name="message" size={13} /> WhatsApp</button>
+            <button className="qa" onClick={scheduleScreening}><Icon name="calendar" size={13} /> Schedule</button>
+            <button className="qa" onClick={confirmAvailability}><Icon name="check" size={13} /> Confirm availability</button>
+            <button className="qa" onClick={archiveOrRestore}>{c.archived ? "Restore" : "Archive"}</button>
+            <button className="qa" onClick={removeCandidate} style={{ color: "var(--bad)" }}><Icon name="x" size={13} /> Delete</button>
           </div>
         </div>
       </div>
@@ -172,6 +229,7 @@ export function CandidateProfile({
                   <span className="note-kind">{n.kind}</span>
                   <span className={n.internal ? "note-int" : "note-pub"}>{n.internal ? "internal" : "client-safe"}</span>
                   <span>· {n.author ?? "—"} · {fmt(n.createdAt)}</span>
+                  <button className="note-del" title="Delete note" onClick={() => delNote(n.id)}><Icon name="x" size={11} /></button>
                 </div>
                 <div style={{ fontSize: 13.5 }}>{n.body}</div>
               </div>
@@ -214,8 +272,8 @@ export function CandidateProfile({
                 return (
                   <div key={iv.id} className="note-item">
                     <div className="note-meta">
-                      {iv.outcome ?? "Interview"} · {iv.completedAt ? fmt(iv.completedAt) : iv.scheduledFor ? `scheduled ${fmt(iv.scheduledFor)}` : "scheduled"}
-                      {iv.provider && <span className="note-kind">{iv.provider}</span>}
+                      {iv.outcome ?? "Interview"} · {iv.completedAt ? fmt(iv.completedAt) : iv.scheduledFor ? `${fmt(iv.scheduledFor)} ${iv.timezone ?? ""}` : "scheduled"}
+                      <span className="note-kind">{iv.status ?? "scheduled"}</span>
                       <span className={"note-kind"} title="Webhook status">{iv.webhookStatus ?? "none"}</span>
                     </div>
                     {iv.summary && <div style={{ fontSize: 13.5 }}>{iv.summary}</div>}
@@ -225,14 +283,22 @@ export function CandidateProfile({
                       </ul>
                     )}
                     <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+                      {iv.meetingUrl && iv.status !== "cancelled" && (
+                        <a href={iv.meetingUrl} className="suggest-mini" target="_blank" rel="noreferrer">
+                          <Icon name="video" size={13} /> Join meeting ({iv.meetingProvider})
+                        </a>
+                      )}
                       {iv.recordingUrl && (
                         <a href={iv.recordingUrl} className="suggest-mini" target="_blank" rel="noreferrer">
                           <Icon name="video" size={13} /> Watch recording
                         </a>
                       )}
-                      <span className="suggest-mini" style={{ cursor: "default" }}>
-                        Transcript: {iv.transcriptAvailable ? "available" : "—"}
-                      </span>
+                      {iv.status !== "cancelled" && !iv.completedAt && (
+                        <>
+                          <button className="suggest-mini" onClick={() => rescheduleIv(iv.id)}>Reschedule</button>
+                          <button className="suggest-mini" onClick={() => cancelIv(iv.id)} style={{ color: "var(--bad)" }}>Cancel</button>
+                        </>
+                      )}
                     </div>
                   </div>
                 );

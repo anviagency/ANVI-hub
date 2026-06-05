@@ -141,6 +141,30 @@ Demo: `PORT=3955 npm run dev` then `BASE=http://localhost:3955 npx tsx scripts/d
 The worker (`npm run worker`) delivers WhatsApp messages, imports, analysis, and reminders.
 Optional env: see `.env.example` (WHATSAPP_*, TIMEOS_*, RESEND_*).
 
+## Workflow closure (mission 5.1)
+
+Closes the gaps the Mission 5 review exposed — a recruiter can now run a whole hire
+in ANVI (Create → Add → Screen → Schedule → Submit → Approve → Placement).
+
+- **P0 bug fixed:** the client can approve after screening (`screened→approved`);
+  decisions are idempotent; an unexpected webhook failure releases its retry claim
+  instead of dropping the approval. Regression tests in `test/integration/approval-regression.test.ts`.
+- **Full CRUD:** edit / archive / soft-delete / restore for candidates and jobs,
+  edit/delete notes, reschedule/cancel interviews — every change audited + timelined,
+  nothing destroyed. Soft-deleted/archived records leave matching + active lists.
+- **Single intake** (`POST /api/candidates`, `mode=manual|cv|linkedin`) — "Add candidate"
+  in the Talent pool; paste-CV runs AI extraction; LinkedIn URLs stored. Import
+  skill-years bug fixed (was 0 → now defaults to experience).
+- **Real scheduling:** interviews carry date/tz/duration/attendees/status/meeting-URL;
+  Meet/Zoom/Teams links generated; the **client picks a time in the portal**;
+  reschedule/cancel; reminders skip cancelled.
+- **Communication:** one-click Call/Email/WhatsApp launchers that log the contact +
+  a 🟢/🟡/🔴 communication-health badge.
+- **Availability intelligence:** 0–100 confidence used in ranking, shown on the profile.
+
+Tool-switches measured **13 → 5** (3 of the 5 are inherent — video call / phone /
+e-sign). See `reports/product-review-m51.md` and `scripts/sim-m51.ts`.
+
 ## Out of scope (later phases)
 WhatsApp Assistant (§7), Timeless interview capture (§5 — `Interview` table exists, no
 provider wired), and the broader ongoing-workforce Client Portal (§6). `Submission`,

@@ -54,9 +54,9 @@ describe("ShareView (UI)", () => {
     expect(await screen.findByText("Artem Valkov")).toBeTruthy();
     expect(screen.getByText("$34/hr")).toBeTruthy();
     expect(screen.getByText(/Covers all required skills/)).toBeTruthy();
-    // Decision buttons present.
+    // Decision buttons + the client-side interview time picker (Mission 5.1 P3).
     expect(screen.getByText("Approve")).toBeTruthy();
-    expect(screen.getByText("Request interview")).toBeTruthy();
+    expect(screen.getByText("Pick interview time")).toBeTruthy();
     expect(screen.getByText("Pass")).toBeTruthy();
   });
 

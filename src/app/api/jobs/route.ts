@@ -12,7 +12,9 @@ export const runtime = "nodejs";
 export async function GET(req: NextRequest) {
   const auth = await authenticate(req, RECRUITER_ROLES);
   if (!auth.ok) return auth.response;
+  const includeArchived = req.nextUrl.searchParams.get("archived") === "1";
   const jobs = await prisma.job.findMany({
+    where: { deletedAt: null, ...(includeArchived ? {} : { archivedAt: null }) },
     include: {
       client: true,
       skills: { include: { skill: true } },

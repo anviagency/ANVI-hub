@@ -1,3 +1,38 @@
+# Remaining Production Risks
+
+## Update after Mission 5.1 (workflow closure)
+
+**Resolved since this was written:**
+- ✅ **CRITICAL: client approval after screening** — was permanently lost; fixed
+  (transition table + idempotent decision + inbound release-on-retry) and locked
+  with regression tests.
+- ✅ **No edit/delete anywhere** — full CRUD (candidate/job/note/interview) with
+  soft-delete + restore; nothing is destroyed; every change is audited + timelined.
+- ✅ **No single-candidate intake** — manual / paste-CV / LinkedIn intake shipped.
+- ✅ **Imported skill-years = 0** (matching dead-on-arrival) — now defaults to the
+  candidate's experience; imported candidates are matchable.
+- ✅ **Cosmetic scheduling** — real interview objects, generated meeting links,
+  client time-selection, reschedule/cancel, reminders.
+
+**New / still-open risks introduced or unchanged by 5.1:**
+- ⚠️ **Meeting links are generated, not provider-provisioned.** `generateMeetingLink`
+  produces real-shaped Meet/Zoom/Teams URLs but does not yet book a room via the
+  provider API (graceful, same pattern as the mock WhatsApp/TimeOS providers). Real
+  provisioning + calendar invites need the provider integrations. **The URL works in
+  the UI but won't open a real meeting room until then.**
+- ⚠️ **Free-text inbound (WhatsApp/email) is still ignored** — only buttons + the
+  time-picker are actioned; a client who types a question gets no response.
+- ⚠️ **No sourcing discovery** — ANVI can add from a LinkedIn URL but can't search
+  external sources; finding net-new candidates still happens in the browser.
+- ⚠️ **No offer/contract workflow** — the funnel ends at `hired → placement`; the
+  contract/e-sign/onboarding is external.
+- ⚠️ **CV "upload" is text-paste only** — no file storage for CV PDFs or recordings
+  (still bare URLs / pasted text); object storage remains unbuilt.
+- The Mission-3.5 platform risks below (multi-tenant org isolation, in-memory rate
+  limiting, PII lifecycle, session revocation) are **unchanged and still open.**
+
+---
+
 # Remaining Production Risks — after Mission 3.5
 
 The four P-blockers are closed (auth/authz/audit/rate-limit; cache used; scale

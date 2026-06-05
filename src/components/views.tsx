@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { Avatar, Pill, initialsOf, AVAILABILITY_LABEL } from "@/components/primitives";
 import { api, JobListItem, TalentItem, ClientListItem } from "@/lib/client/api";
+import { AddCandidate } from "@/components/AddCandidate";
 
 export function VacanciesView({ onMatch }: { onMatch: (prompt: string) => void }) {
   const [jobs, setJobs] = useState<JobListItem[] | null>(null);
@@ -67,8 +68,10 @@ export function VacanciesView({ onMatch }: { onMatch: (prompt: string) => void }
 export function CandidatesView({ onOpen }: { onOpen: (id: string) => void }) {
   const [items, setItems] = useState<TalentItem[] | null>(null);
   const [filter, setFilter] = useState<"all" | "available">("all");
+  const [adding, setAdding] = useState(false);
+  const load = () => api.candidates().then((d) => setItems(d.candidates)).catch(() => setItems([]));
   useEffect(() => {
-    api.candidates().then((d) => setItems(d.candidates)).catch(() => setItems([]));
+    load();
   }, []);
   const shown = (items ?? []).filter((c) => (filter === "available" ? c.availability === "available" : true));
   return (
@@ -78,7 +81,11 @@ export function CandidatesView({ onOpen }: { onOpen: (id: string) => void }) {
           <div className="view-title">Talent pool</div>
           <div className="view-sub">{items ? `${items.length} candidates` : "…"} · click to open the data room.</div>
         </div>
+        <button className="btn btn-primary" onClick={() => setAdding(true)}>
+          <Icon name="plus" size={15} /> Add candidate
+        </button>
       </div>
+      {adding && <AddCandidate onClose={() => setAdding(false)} onCreated={(id) => { setAdding(false); load(); onOpen(id); }} />}
       <div className="view-filters">
         <button className="chip" data-active={filter === "all" ? "" : undefined} onClick={() => setFilter("all")}>
           All
@@ -99,7 +106,7 @@ export function CandidatesView({ onOpen }: { onOpen: (id: string) => void }) {
             <button key={c.id} className="cres" onClick={() => onOpen(c.id)}>
               <Avatar initials={initialsOf(c.name)} flag={c.flag} size={40} />
               <div className="cres-main">
-                <div className="cres-name">{c.name}</div>
+                <div className="cres-name">{c.name}{c.source && <span className="cres-tag">{c.source}</span>}</div>
                 <div className="cres-sub">
                   {[c.title, c.location && c.country ? `${c.location}, ${c.country}` : c.country, c.english]
                     .filter(Boolean)

@@ -45,12 +45,13 @@ export const handlers: Handlers = {
     return deliverWaMessage(String(payload.messageId));
   },
 
-  // Interview reminder: WhatsApp + email (if available).
+  // Interview reminder: WhatsApp + email (if available). Skips cancelled interviews.
   interview_reminder: async (payload) => {
     const interviewId = String(payload.interviewId);
     const label = String(payload.label ?? "");
-    const waId = await notifyInterviewReminder(interviewId, label);
     const interview = await prisma.interview.findUnique({ where: { id: interviewId }, include: { candidate: true, job: { include: { client: true } } } });
+    if (!interview || interview.status === "cancelled") return { skipped: "cancelled_or_missing" };
+    const waId = await notifyInterviewReminder(interviewId, label);
     let email = "skipped";
     if (interview?.job?.client?.email) {
       const r = await sendEmail({

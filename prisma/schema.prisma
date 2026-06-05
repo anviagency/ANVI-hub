@@ -166,6 +166,8 @@ model Job {
   experienceYearsMin Int?      @map("experience_years_min")
   descriptionRaw     String?   @map("description_raw")
   status             JobStatus @default(open)
+  archivedAt         DateTime? @map("archived_at")
+  deletedAt          DateTime? @map("deleted_at")
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
@@ -230,8 +232,15 @@ model Candidate {
   linkedinTitle     String?      @map("linkedin_title")
   aiSummary         String?      @map("ai_summary")
   source            String?
+  // Raw CV text (pasted/uploaded) — basis for AI extraction (Mission 5.1 P2).
+  cvText            String?      @map("cv_text")
   lastContactedAt   DateTime?    @map("last_contacted_at")
   lastScreenedAt    DateTime?    @map("last_screened_at")
+  // When availability was last explicitly confirmed (Mission 5.1 P5).
+  availabilityConfirmedAt DateTime? @map("availability_confirmed_at")
+  // Soft-delete / archive (Mission 5.1 P1 — nothing disappears permanently).
+  archivedAt        DateTime?    @map("archived_at")
+  deletedAt         DateTime?    @map("deleted_at")
   createdAt         DateTime     @default(now()) @map("created_at")
   updatedAt         DateTime     @updatedAt @map("updated_at")
 
@@ -382,9 +391,18 @@ model Interview {
   participants     Json      @default("[]")
   meetingTime      DateTime? @map("meeting_time")
   scheduledFor     DateTime? @map("scheduled_for")
+  // Real scheduling fields (Mission 5.1 P3).
+  timezone         String?
+  durationMins     Int?      @map("duration_mins")
+  meetingUrl       String?   @map("meeting_url")
+  meetingProvider  String?   @map("meeting_provider") // google_meet | zoom | teams
+  // scheduled | rescheduled | cancelled | completed
+  status           String    @default("scheduled")
+  cancelledAt      DateTime? @map("cancelled_at")
+  cancelReason     String?   @map("cancel_reason")
   completedAt      DateTime? @map("completed_at")
   outcome          String?
-  // none | scheduled | summary_ready | failed
+  // none | scheduled | summary_ready | failed (TimeOS webhook lifecycle)
   webhookStatus    String    @default("none") @map("webhook_status")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
@@ -494,6 +512,8 @@ model Note {
   // explicitly opts in (ShareLinkCandidate.shareNotes).
   internal    Boolean  @default(true)
   author      String?
+  editedAt    DateTime? @map("edited_at")
+  deletedAt   DateTime? @map("deleted_at")
   createdAt   DateTime @default(now()) @map("created_at")
 
   candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)

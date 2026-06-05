@@ -22,7 +22,7 @@ interface ClientCandidate {
   sharedNotes: { kind: string; body: string }[];
   clientStatus: string;
   stage: string;
-  interview: { recordingUrl: string | null; summary: string | null; actionItems: unknown; completedAt: string | null } | null;
+  interview: { recordingUrl: string | null; summary: string | null; actionItems: unknown; completedAt: string | null; scheduledFor: string | null; meetingUrl: string | null; status: string } | null;
 }
 
 interface ShareData {
@@ -55,6 +55,18 @@ export function ShareView({ token }: { token: string }) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ candidateId, decision }),
+    });
+    setPending(null);
+    load();
+  }
+
+  async function pickTime(candidateId: string, value: string) {
+    if (!value) return;
+    setPending(candidateId + "schedule");
+    await fetch(`/api/share/${token}/schedule`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ candidateId, scheduledFor: new Date(value).toISOString() }),
     });
     setPending(null);
     load();
@@ -169,16 +181,26 @@ export function ShareView({ token }: { token: string }) {
               </div>
             )}
 
+            {c.interview && c.interview.scheduledFor && c.interview.status !== "cancelled" && !c.interview.completedAt && (
+              <div className="banner banner-info" style={{ marginTop: 10 }}>
+                <Icon name="calendar" size={13} /> Interview set for {new Date(c.interview.scheduledFor).toLocaleString()}
+                {c.interview.meetingUrl && <> · <a href={c.interview.meetingUrl} target="_blank" rel="noreferrer">join link</a></>}
+              </div>
+            )}
+
             <div className="share-actions">
               <button className="btn btn-good" disabled={!!pending} onClick={() => decide(c.id, "approve")}>
                 <Icon name="check" size={15} /> Approve
               </button>
-              <button className="btn btn-ghost" disabled={!!pending} onClick={() => decide(c.id, "request_interview")}>
-                <Icon name="calendar" size={15} /> Request interview
-              </button>
               <button className="btn btn-bad" disabled={!!pending} onClick={() => decide(c.id, "reject")}>
                 <Icon name="x" size={15} /> Pass
               </button>
+              {/* Client picks an interview time directly (P3 availability flow) */}
+              <label className="qa" style={{ gap: 5 }}>
+                <Icon name="calendar" size={14} /> Pick interview time
+                <input type="datetime-local" style={{ border: "none", outline: "none", background: "transparent", fontSize: 12 }}
+                  disabled={!!pending} onChange={(e) => pickTime(c.id, e.target.value)} />
+              </label>
             </div>
           </div>
         ))}

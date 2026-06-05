@@ -110,8 +110,8 @@ export interface ClientSafeCandidate {
   sharedNotes: { kind: string; body: string; createdAt: Date }[]; // only if shareNotes
   clientStatus: string; // pending/approved/rejected
   stage: string; // friendly pipeline stage label
-  // Client-safe interview info (video + summary + action items; NEVER transcript).
-  interview: { recordingUrl: string | null; summary: string | null; actionItems: unknown; completedAt: Date | null } | null;
+  // Client-safe interview info (video + summary + action items + scheduled meeting; NEVER transcript).
+  interview: { recordingUrl: string | null; summary: string | null; actionItems: unknown; completedAt: Date | null; scheduledFor: Date | null; meetingUrl: string | null; status: string } | null;
 }
 
 /** Validate a token and project everything the client is allowed to see. */
@@ -157,8 +157,8 @@ export async function resolveShareLink(token: string): Promise<ResolvedShareLink
     const [submission, pipeline, interviewRow] = await Promise.all([
       prisma.submission.findUnique({ where: { jobId_candidateId: { jobId: link.jobId, candidateId: row.id } } }),
       prisma.pipeline.findUnique({ where: { candidateId_jobId: { candidateId: row.id, jobId: link.jobId } } }),
-      // Latest completed interview for this candidate+job — client-safe fields only.
-      prisma.interview.findFirst({ where: { candidateId: row.id, jobId: link.jobId, completedAt: { not: null } }, orderBy: { completedAt: "desc" } }),
+      // Latest interview for this candidate+job (scheduled or completed) — client-safe.
+      prisma.interview.findFirst({ where: { candidateId: row.id, jobId: link.jobId, status: { not: "cancelled" } }, orderBy: { createdAt: "desc" } }),
     ]);
 
     let sharedNotes: ClientSafeCandidate["sharedNotes"] = [];
@@ -166,7 +166,7 @@ export async function resolveShareLink(token: string): Promise<ResolvedShareLink
       // Even when notes are shared, INTERNAL notes never cross the boundary.
       // shareNotes only surfaces the client-safe (internal=false) notes.
       const notes = await prisma.note.findMany({
-        where: { candidateId: row.id, internal: false, OR: [{ jobId: link.jobId }, { jobId: null }] },
+        where: { candidateId: row.id, internal: false, deletedAt: null, OR: [{ jobId: link.jobId }, { jobId: null }] },
         orderBy: { createdAt: "desc" },
         take: 10,
       });
@@ -192,7 +192,7 @@ export async function resolveShareLink(token: string): Promise<ResolvedShareLink
       clientStatus: submission?.clientStatus ?? "pending",
       stage: STAGE_LABEL[(pipeline?.stage ?? "sent_to_client") as PipelineStage],
       interview: interviewRow
-        ? { recordingUrl: interviewRow.recordingUrl, summary: interviewRow.summary, actionItems: interviewRow.actionItems, completedAt: interviewRow.completedAt }
+        ? { recordingUrl: interviewRow.recordingUrl, summary: interviewRow.summary, actionItems: interviewRow.actionItems, completedAt: interviewRow.completedAt, scheduledFor: interviewRow.scheduledFor, meetingUrl: interviewRow.meetingUrl, status: interviewRow.status }
         : null,
     });
   }
@@ -218,6 +218,16 @@ export async function recordDecision(token: string, candidateId: string, decisio
   if (!link.candidates.some((c) => c.candidateId === candidateId)) throw new ShareError("candidate_not_shared");
 
   return applyClientDecision({ candidateId, jobId: link.jobId, decision, via: "share_link", reason: feedback, ip });
+}
+
+/** Validate a token + that the candidate is on the link; returns the link's job/client. */
+export async function assertSharedCandidate(token: string, candidateId: string): Promise<{ jobId: string; clientId: string | null }> {
+  const link = await prisma.shareLink.findUnique({ where: { token }, include: { candidates: true } });
+  if (!link) throw new ShareError("not_found");
+  if (link.revoked) throw new ShareError("revoked");
+  if (link.expiresAt && link.expiresAt.getTime() < Date.now()) throw new ShareError("expired");
+  if (!link.candidates.some((c) => c.candidateId === candidateId)) throw new ShareError("candidate_not_shared");
+  return { jobId: link.jobId, clientId: link.clientId };
 }
 
 export async function revokeShareLink(token: string, revokedBy?: string): Promise<void> {

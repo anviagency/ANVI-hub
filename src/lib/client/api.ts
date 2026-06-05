@@ -55,6 +55,15 @@ async function getJson<T>(url: string): Promise<T> {
   return res.json();
 }
 
+async function send<T>(method: string, url: string, body?: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return res.json().catch(() => ({})) as Promise<T>;
+}
+
 export const api = {
   chat: (message: string, context?: { jobId?: string }) =>
     postJson<ChatResponse>("/api/chat", { message, context }),
@@ -134,12 +143,28 @@ export const api = {
       "/api/notifications"
     ),
 
-  scheduleInterview: (candidateId: string, jobId: string, scheduledFor: string) =>
-    postJson<{ interviewId?: string; meetingTag?: string; reminders?: string[]; error?: string }>("/api/interviews/schedule", {
+  // --- Single candidate intake (Mission 5.1 P2) ---
+  createCandidate: (body: Record<string, unknown>) =>
+    send<{ id?: string; duplicate?: boolean; error?: string; message?: string }>("POST", "/api/candidates", body),
+
+  // --- CRUD (Mission 5.1 P1) ---
+  editCandidate: (id: string, body: Record<string, unknown>) => send<{ ok?: boolean; error?: string }>("PATCH", `/api/candidates/${id}`, body),
+  deleteCandidate: (id: string) => send<{ ok?: boolean }>("DELETE", `/api/candidates/${id}`),
+  archiveCandidate: (id: string) => send<{ ok?: boolean }>("POST", `/api/candidates/${id}/archive`, {}),
+  restoreCandidate: (id: string) => send<{ ok?: boolean }>("POST", `/api/candidates/${id}/restore`, {}),
+  editNote: (id: string, body: Record<string, unknown>) => send<{ ok?: boolean }>("PATCH", `/api/notes/${id}`, body),
+  deleteNote: (id: string) => send<{ ok?: boolean }>("DELETE", `/api/notes/${id}`),
+
+  // --- Scheduling (Mission 5.1 P3) ---
+  scheduleInterview: (candidateId: string, jobId: string, scheduledFor: string, meetingProvider = "google_meet") =>
+    postJson<{ interviewId?: string; meetingTag?: string; meetingUrl?: string; reminders?: string[]; error?: string }>("/api/interviews/schedule", {
       candidateId,
       jobId,
       scheduledFor,
+      meetingProvider,
     }),
+  rescheduleInterview: (id: string, scheduledFor: string) => send<{ ok?: boolean; reminders?: string[] }>("PATCH", `/api/interviews/${id}`, { scheduledFor }),
+  cancelInterview: (id: string, reason?: string) => send<{ ok?: boolean }>("DELETE", `/api/interviews/${id}`, { reason }),
 
   whatsappMessages: (candidateId?: string) =>
     getJson<{ messages: WaMessageItem[] }>(`/api/whatsapp/messages${candidateId ? `?candidateId=${candidateId}` : ""}`),
@@ -252,6 +277,10 @@ export interface CandidateDetail {
     clientRate: number | null;
     salaryExpectation: number | null;
     source: string | null;
+    email?: string | null;
+    phone?: string | null;
+    linkedinUrl?: string | null;
+    archived?: boolean;
     aiSummary: string | null;
     linkedinTitle: string | null;
     createdAt: string;
@@ -263,6 +292,8 @@ export interface CandidateDetail {
   };
   anomalies: Anomaly[];
   freshness?: FreshnessResult;
+  availabilityScore?: { score: number; band: string; reasons: string[] };
+  communicationHealth?: { band: "green" | "yellow" | "red"; daysSinceContact: number | null };
   analysis: {
     matchScore: number;
     recommendation: string;
@@ -283,6 +314,11 @@ export interface CandidateDetail {
     provider?: string | null;
     meetingTag?: string | null;
     meetingTime?: string | null;
+    meetingUrl?: string | null;
+    meetingProvider?: string | null;
+    timezone?: string | null;
+    durationMins?: number | null;
+    status?: string;
     webhookStatus?: string;
     scheduledFor: string | null;
     completedAt: string | null;
