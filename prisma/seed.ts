@@ -489,6 +489,18 @@ async function main() {
   );
   console.log(`  ✓ ${skillByName.size} skills`);
 
+  // Users (always — needed for login). Dev passwords — change in production.
+  await prisma.user.create({ data: { email: "admin@anvi.com", name: "ANVI Admin", role: "admin", passwordHash: await hashPassword("admin1234") } });
+  await prisma.user.create({ data: { email: "daria@anvi.com", name: "Daria Levin", role: "recruiter", passwordHash: await hashPassword("recruiter1234") } });
+  console.log("  ✓ users: admin@anvi.com / daria@anvi.com");
+
+  // Demo domain data only when SEED_DEMO=1 — otherwise the system holds real data only.
+  if (process.env.SEED_DEMO !== "1") {
+    console.log("  (real-data mode — skipping demo clients/candidates/jobs; set SEED_DEMO=1 for the demo dataset)");
+    console.log("✅ Seed complete (users + skills).");
+    return;
+  }
+
   // Clients.
   const andy = await prisma.client.create({
     data: {
@@ -528,11 +540,9 @@ async function main() {
   });
   console.log("  ✓ 3 clients");
 
-  // Users (admin / recruiter / client). Dev passwords — change in production.
-  await prisma.user.create({ data: { email: "admin@anvi.com", name: "ANVI Admin", role: "admin", passwordHash: await hashPassword("admin1234") } });
-  await prisma.user.create({ data: { email: "daria@anvi.com", name: "Daria Levin", role: "recruiter", passwordHash: await hashPassword("recruiter1234") } });
+  // Demo client login user.
   await prisma.user.create({ data: { email: "andy@northwind.example", name: "Andy Kessler", role: "client", clientId: andy.id, passwordHash: await hashPassword("client1234") } });
-  console.log("  ✓ 3 users (admin@anvi.com / daria@anvi.com / andy@northwind.example)");
+  console.log("  ✓ demo client user (andy@northwind.example)");
 
   // Candidates.
   const candidateIdByName = new Map<string, string>();

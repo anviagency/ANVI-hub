@@ -9,6 +9,8 @@ import { CandidateProfile } from "@/components/CandidateProfile";
 import { PipelineView } from "@/components/PipelineView";
 import { ImportView } from "@/components/ImportView";
 import { ActivityView } from "@/components/ActivityView";
+import { JobWorkspace } from "@/components/JobWorkspace";
+import { PlacementsView } from "@/components/PlacementsView";
 import { VacanciesView, CandidatesView, ClientsView } from "@/components/views";
 
 const NAV = [
@@ -19,9 +21,10 @@ const NAV = [
   { key: "import", icon: "download", label: "Import" },
   { key: "activity", icon: "message", label: "Activity" },
   { key: "clients", icon: "building", label: "Clients" },
+  { key: "placements", icon: "users", label: "Workforce" },
 ] as const;
 
-type Route = (typeof NAV)[number]["key"] | "profile";
+type Route = (typeof NAV)[number]["key"] | "profile" | "workspace";
 
 export default function Page() {
   const [route, setRoute] = useState<Route>("chat");
@@ -29,8 +32,17 @@ export default function Page() {
   const [chatKey, setChatKey] = useState(0);
   const [drawer, setDrawer] = useState<{ id: string; jobId?: string } | null>(null);
   const [profile, setProfile] = useState<{ id: string; jobId?: string } | null>(null);
+  const [workspaceJob, setWorkspaceJob] = useState<string | null>(null);
   const [me, setMe] = useState<{ name: string; role: string } | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [recentJobs, setRecentJobs] = useState<{ id: string; title: string; client?: string | null }[]>([]);
+
+  const loadRecent = () => {
+    fetch("/api/jobs")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setRecentJobs((d.jobs ?? []).slice(0, 6).map((j: { id: string; title: string; client?: { company?: string | null } | null }) => ({ id: j.id, title: j.title, client: j.client?.company ?? null }))))
+      .catch(() => setRecentJobs([]));
+  };
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -38,6 +50,7 @@ export default function Page() {
       .then((d) => {
         setMe(d.user);
         setAuthChecked(true);
+        loadRecent();
       })
       .catch(() => {
         location.href = "/login?next=/";
@@ -66,7 +79,13 @@ export default function Page() {
     setRoute("profile");
   };
 
-  const sideRoute: string = route === "profile" ? "candidates" : route;
+  const openWorkspace = (jobId: string) => {
+    setWorkspaceJob(jobId);
+    setRoute("workspace");
+    loadRecent();
+  };
+
+  const sideRoute: string = route === "profile" ? "candidates" : route === "workspace" ? "vacancies" : route;
 
   if (!authChecked) {
     return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", color: "var(--mute)" }}>Loading…</div>;
@@ -94,14 +113,16 @@ export default function Page() {
             </button>
           ))}
         </nav>
-        <div className="recent">
-          <div className="recent-label">Recent</div>
-          {["Full-Stack for Andy", "ML Engineer · Vektor", "Cheaper React devs"].map((r) => (
-            <button key={r} className="recent-item" onClick={() => setRoute("chat")}>
-              {r}
-            </button>
-          ))}
-        </div>
+        {recentJobs.length > 0 && (
+          <div className="recent">
+            <div className="recent-label">Recent roles</div>
+            {recentJobs.map((j) => (
+              <button key={j.id} className="recent-item" onClick={() => openWorkspace(j.id)} title={j.client ? `${j.title} · ${j.client}` : j.title}>
+                {j.client ? `${j.title} · ${j.client}` : j.title}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="user">
           <Avatar initials={(me?.name ?? "DL").split(/\s+/).map((w) => w[0]?.toUpperCase()).join("").slice(0, 2)} size={32} accent />
           <div className="user-id">
@@ -116,16 +137,20 @@ export default function Page() {
 
       <main className="main">
         {route === "chat" && (
-          <ChatView key={chatKey} seedPrompt={seedPrompt} onOpenCandidate={(id, jobId) => setDrawer({ id, jobId })} />
+          <ChatView key={chatKey} seedPrompt={seedPrompt} onOpenCandidate={(id, jobId) => setDrawer({ id, jobId })} onOpenWorkspace={openWorkspace} />
         )}
         {route === "pipeline" && <PipelineView onOpen={openProfile} />}
-        {route === "vacancies" && <VacanciesView onMatch={runPrompt} />}
+        {route === "vacancies" && <VacanciesView onMatch={runPrompt} onOpenWorkspace={openWorkspace} />}
         {route === "candidates" && <CandidatesView onOpen={(id) => openProfile(id)} />}
         {route === "import" && <ImportView />}
         {route === "activity" && <ActivityView />}
         {route === "clients" && <ClientsView />}
+        {route === "placements" && <PlacementsView />}
         {route === "profile" && profile && (
           <CandidateProfile candidateId={profile.id} jobId={profile.jobId} onBack={() => setRoute("candidates")} />
+        )}
+        {route === "workspace" && workspaceJob && (
+          <JobWorkspace jobId={workspaceJob} onBack={() => setRoute("vacancies")} onOpenCandidate={openProfile} />
         )}
       </main>
 

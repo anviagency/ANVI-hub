@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { routeIntent } from "@/lib/ai/intent-router";
-import { parseJob } from "@/lib/ai/job-parser";
 import { loadJobRow, serializeMatch } from "@/lib/jobs";
 import { runMatch, persistAnalyses } from "@/lib/matching/funnel";
 import { aiEnabled } from "@/lib/ai/anthropic";
@@ -10,6 +9,7 @@ import { authorizeMutation, RECRUITER_ROLES } from "@/lib/auth/guard";
 import {
   handleExplain, handleAvailability, handleSummarize, handleCompare, handleSubmit, handleShare, handlePending,
 } from "@/lib/chat/copilot";
+import { runIntake, JobIntake } from "@/lib/chat/intake";
 
 export const runtime = "nodejs";
 
@@ -35,13 +35,21 @@ export async function POST(req: NextRequest) {
   }
   const { message, context } = parsed.data;
   const jobId = context?.jobId;
+
+  // Mid-conversation job intake (Mission 7.1): if we're gathering fields, keep
+  // gathering — don't re-classify the recruiter's answer as a new intent.
+  const pending = context?.pendingJob as JobIntake | undefined;
+  if (pending && (pending.asking || pending.stage === "confirm_client" || pending.stage === "create_client")) {
+    return NextResponse.json(await runIntake(message, pending, auth.user.id));
+  }
+
   const routed = await routeIntent(message);
   const count = typeof routed.entities.count === "number" ? Math.min(routed.entities.count, 10) : 3;
   const names = Array.isArray(routed.entities.names) ? (routed.entities.names as string[]) : [];
 
   switch (routed.intent) {
     case "create_job":
-      return handleCreateJob(message);
+      return NextResponse.json(await runIntake(message, null, auth.user.id));
     case "match_candidates":
     case "find_similar":
       return handleMatch(message, jobId, routed.entities);
@@ -79,25 +87,6 @@ async function handleAttachClient(message: string) {
       : "Tell me the client name and I'll resolve or create it when you save a role.",
     kind: "fallback",
     data: { client: client ? { id: client.id, name: client.name, company: client.company } : null },
-  });
-}
-
-async function handleCreateJob(message: string) {
-  const job = await parseJob(message);
-  if (!job.isJob) return handleFallback();
-
-  // Try to find an existing client mentioned anywhere (best-effort).
-  return NextResponse.json({
-    intent: "create_job",
-    thinking: [
-      "Parsing role from your message…",
-      "Extracting skills, seniority and budget…",
-      job.missingFields.includes("client") ? "Checking which client this is for…" : "Structuring vacancy…",
-    ],
-    reply:
-      "I structured this role from your brief. Review the fields, attach a client, and I'll save it — then say “match” to find candidates.",
-    kind: "job_preview",
-    data: { parsed: job, aiBacked: job.source === "llm" },
   });
 }
 
@@ -179,7 +168,7 @@ function handleFallback() {
     thinking: [],
     reply:
       "I can run your whole desk from here: paste a role to structure it, “match”, “explain the top candidates”, " +
-      "“is Artem available?”, “summarize Sofia”, “compare Artem and Oleksandr”, “send top 3 to Andy”, " +
+      "“is this candidate available?”, “summarize a candidate”, “compare the top two”, “send the top 3 to the client”, " +
       "“share a client link”, or “what's pending?”.",
     kind: "fallback",
     data: {},

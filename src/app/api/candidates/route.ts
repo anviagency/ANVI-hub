@@ -3,8 +3,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { authenticate, authorizeMutation, RECRUITER_ROLES } from "@/lib/auth/guard";
 import { canonicalizeSkill } from "@/lib/ai/skills";
-import { parseCv } from "@/lib/ai/cv-parser";
 import { dedupeKeyFor } from "@/lib/import/ingest";
+import { createCandidateFromCv } from "@/lib/import/cv-intake";
 import { recordChange } from "@/lib/crud";
 import { getClientIp } from "@/lib/security/request";
 
@@ -53,13 +53,13 @@ export async function POST(req: NextRequest) {
 
   if (b.mode === "cv") {
     if (!b.cvText) return NextResponse.json({ error: "cvText required for mode=cv" }, { status: 400 });
-    const cv = await parseCv(b.cvText);
-    fields = {
-      fullName: cv.fullName, title: cv.title, country: cv.country, email: b.email ?? null,
-      englishLevel: cv.englishLevel, totalYears: cv.totalYears, clientRate: b.clientRate ?? null,
-      availability: b.availability ?? "available", skills: cv.skills, cvText: b.cvText, source: b.source ?? "CV",
-    };
-  } else if (b.mode === "linkedin") {
+    const r = await createCandidateFromCv(b.cvText, { source: b.source ?? "CV", userId: auth.user.id, ip: getClientIp(req), mode: "cv" });
+    if (r.error) return NextResponse.json({ error: r.error }, { status: 422 });
+    if (r.duplicate) return NextResponse.json({ duplicate: true, id: r.id, message: "Candidate already exists" }, { status: 200 });
+    return NextResponse.json({ id: r.id, name: r.name, source: b.source ?? "CV", skills: r.skills });
+  }
+
+  if (b.mode === "linkedin") {
     if (!b.linkedinUrl) return NextResponse.json({ error: "linkedinUrl required for mode=linkedin" }, { status: 400 });
     // Placeholder adapter: store the URL now, prepare for future enrichment.
     const slugName = b.fullName ?? deriveNameFromLinkedin(b.linkedinUrl);

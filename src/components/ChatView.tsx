@@ -7,8 +7,8 @@ import { api, CandidateCard, ChatResponse } from "@/lib/client/api";
 import type { ParsedJob } from "@/lib/types";
 
 const STARTERS = [
-  { icon: "briefcase", label: "Need a Senior Full-Stack dev: React, Next.js, Node, Postgres, 5+ yrs, $28-42/hr" },
-  { icon: "users", label: "Match candidates for the Full-Stack role" },
+  { icon: "briefcase", label: "Paste a job description and I'll structure the role" },
+  { icon: "users", label: "Match candidates for my latest role" },
   { icon: "sparkle2", label: "Explain why the top candidates ranked highest" },
   { icon: "clock", label: "What's pending — what should I do next?" },
 ];
@@ -184,7 +184,7 @@ function JobPreviewCard({
             <input
               autoFocus
               value={clientInput}
-              placeholder="e.g. Andy"
+              placeholder="Client name"
               onChange={(e) => setClientInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && resolveClient()}
             />
@@ -278,12 +278,39 @@ function ResponseBody({
   onSaved,
   rawText,
   onOpenCandidate,
+  onPrompt,
+  onOpenWorkspace,
 }: {
   resp: ChatResponse;
   rawText: string;
   onSaved: (jobId: string, title: string) => void;
   onOpenCandidate: (id: string, jobId?: string) => void;
+  onPrompt: (text: string) => void;
+  onOpenWorkspace?: (jobId: string) => void;
 }) {
+  if (resp.kind === "job_intake") {
+    const buttons = (resp.data.buttons as { label: string; value: string }[] | null) ?? null;
+    if (!buttons) return null; // the question text is the AI reply; no card needed
+    return (
+      <div className="tag-row" style={{ marginTop: 4 }}>
+        {buttons.map((b) => (
+          <button key={b.value} className="chip" onClick={() => onPrompt(b.label)}>{b.label}</button>
+        ))}
+      </div>
+    );
+  }
+  if (resp.kind === "job_created") {
+    return (
+      <div className="rcard">
+        <div className="rcard-eyebrow">position created</div>
+        <div className="rcard-title">{String(resp.data.jobTitle)}{resp.data.client ? ` · ${resp.data.client}` : ""}</div>
+        <div className="rcard-actions">
+          <button className="btn btn-primary" onClick={() => onOpenWorkspace?.(resp.data.jobId as string)}><Icon name="grid" size={15} /> Open workspace</button>
+          <button className="btn btn-ghost" onClick={() => onPrompt("match")}><Icon name="sparkle2" size={15} /> Match candidates</button>
+        </div>
+      </div>
+    );
+  }
   if (resp.kind === "job_preview" && resp.data.parsed) {
     return (
       <JobPreviewCard
@@ -478,11 +505,15 @@ function AssistantMessage({
   rawText,
   onSaved,
   onOpenCandidate,
+  onPrompt,
+  onOpenWorkspace,
 }: {
   msg: Extract<Msg, { role: "ai" }>;
   rawText: string;
   onSaved: (jobId: string, title: string) => void;
   onOpenCandidate: (id: string, jobId?: string) => void;
+  onPrompt: (text: string) => void;
+  onOpenWorkspace?: (jobId: string) => void;
 }) {
   const hasThinking = (msg.resp.thinking?.length ?? 0) > 0 && !msg.instant;
   const [phase, setPhase] = useState<"thinking" | "typing" | "ready">(hasThinking ? "thinking" : "typing");
@@ -506,7 +537,7 @@ function AssistantMessage({
             </p>
             {phase === "ready" && (
               <div className="ai-reveal">
-                <ResponseBody resp={msg.resp} rawText={rawText} onSaved={onSaved} onOpenCandidate={onOpenCandidate} />
+                <ResponseBody resp={msg.resp} rawText={rawText} onSaved={onSaved} onOpenCandidate={onOpenCandidate} onPrompt={onPrompt} onOpenWorkspace={onOpenWorkspace} />
               </div>
             )}
           </>
@@ -561,13 +592,16 @@ function InputBar({ big, onSubmit }: { big?: boolean; onSubmit: (t: string) => v
 export function ChatView({
   seedPrompt,
   onOpenCandidate,
+  onOpenWorkspace,
 }: {
   seedPrompt?: string | null;
   onOpenCandidate: (id: string, jobId?: string) => void;
+  onOpenWorkspace?: (jobId: string) => void;
 }) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [busy, setBusy] = useState(false);
   const currentJobId = useRef<string | null>(null);
+  const pendingJob = useRef<unknown>(null); // conversational job-intake state
   const lastUserText = useRef<string>("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -577,8 +611,14 @@ export function ChatView({
     setMsgs((m) => [...m, { role: "user", id: nextId(), text }]);
     setBusy(true);
     try {
-      const resp = await api.chat(text, currentJobId.current ? { jobId: currentJobId.current } : undefined);
-      if (resp.data.jobId) currentJobId.current = resp.data.jobId;
+      const resp = await api.chat(text, { jobId: currentJobId.current ?? undefined, pendingJob: pendingJob.current ?? undefined });
+      if (resp.data.jobId) currentJobId.current = resp.data.jobId as string;
+      // Carry / clear the intake state across turns.
+      pendingJob.current = resp.kind === "job_intake" ? (resp.data.pendingJob ?? null) : null;
+      if (resp.kind === "job_created" && resp.data.jobId && onOpenWorkspace) {
+        // Give the success message a beat, then open the new workspace.
+        setTimeout(() => onOpenWorkspace(resp.data.jobId as string), 900);
+      }
       setMsgs((m) => [...m, { role: "ai", id: nextId(), resp }]);
     } catch {
       setMsgs((m) => [
@@ -652,6 +692,8 @@ export function ChatView({
                 rawText={i > 0 && msgs[i - 1].role === "user" ? (msgs[i - 1] as { text: string }).text : lastUserText.current}
                 onSaved={onSaved}
                 onOpenCandidate={onOpenCandidate}
+                onPrompt={send}
+                onOpenWorkspace={onOpenWorkspace}
               />
             )
           )}

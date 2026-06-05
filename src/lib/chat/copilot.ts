@@ -150,7 +150,7 @@ export async function handleAvailability(message: string, jobId?: string): Promi
 
 export async function handleSummarize(message: string, jobId?: string): Promise<ChatResult> {
   const named = await findCandidatesInMessage(message, 1);
-  if (named.length === 0) return { intent: "summarize", thinking: [], kind: "fallback", data: {}, reply: "Which candidate should I summarize? Name them, e.g. “summarize Artem”." };
+  if (named.length === 0) return { intent: "summarize", thinking: [], kind: "fallback", data: {}, reply: "Which candidate should I summarize? Name them, e.g. “summarize <name>”." };
   const row = await prisma.candidate.findUnique({ where: { id: named[0].id }, include: candidateInclude });
   if (!row) return noJob("summarize");
   const job = await resolveJob(message, jobId);
@@ -178,7 +178,7 @@ export async function handleSummarize(message: string, jobId?: string): Promise<
 
 export async function handleCompare(message: string, names: string[], jobId?: string): Promise<ChatResult> {
   let rows = names.length ? await resolveCandidatesByNames(names, 2) : await findCandidatesInMessage(message, 2);
-  if (rows.length < 2) return { intent: "compare", thinking: [], kind: "fallback", data: {}, reply: "Name two candidates to compare, e.g. “compare Artem and Oleksandr”." };
+  if (rows.length < 2) return { intent: "compare", thinking: [], kind: "fallback", data: {}, reply: "Name two candidates to compare, e.g. “compare <name> and <name>”." };
   rows = rows.slice(0, 2);
   const job = await resolveJob(message, jobId);
   const currentYear = new Date().getUTCFullYear();

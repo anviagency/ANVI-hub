@@ -24,7 +24,8 @@ export interface CandidateCard {
 
 export type ChatKind =
   | "job_preview" | "candidates" | "status" | "fallback"
-  | "explain" | "availability" | "summary" | "comparison" | "submit_result" | "share_result" | "pending";
+  | "explain" | "availability" | "summary" | "comparison" | "submit_result" | "share_result" | "pending"
+  | "job_intake" | "job_created";
 
 export interface ChatResponse {
   intent: string;
@@ -68,7 +69,7 @@ async function send<T>(method: string, url: string, body?: unknown): Promise<T> 
 }
 
 export const api = {
-  chat: (message: string, context?: { jobId?: string }) =>
+  chat: (message: string, context?: { jobId?: string; pendingJob?: unknown }) =>
     postJson<ChatResponse>("/api/chat", { message, context }),
 
   resolveClient: (name: string) =>
@@ -92,6 +93,8 @@ export const api = {
   }) => postJson<{ job: { id: string; title: string } }>("/api/jobs", job),
 
   jobs: () => getJson<{ jobs: JobListItem[] }>("/api/jobs"),
+  workspace: (jobId: string) => getJson<JobWorkspace>(`/api/jobs/${jobId}/workspace`),
+  suggestions: (jobId: string) => getJson<{ suggestions: JobSuggestion[] }>(`/api/jobs/${jobId}/suggestions`),
   candidates: () => getJson<{ candidates: TalentItem[] }>("/api/candidates"),
   clients: () => getJson<{ clients: ClientListItem[] }>("/api/clients"),
   candidate: (id: string, jobId?: string) =>
@@ -150,6 +153,16 @@ export const api = {
   createCandidate: (body: Record<string, unknown>) =>
     send<{ id?: string; duplicate?: boolean; error?: string; message?: string }>("POST", "/api/candidates", body),
 
+  // --- PDF CV import (bulk upload) ---
+  importPdf: async (files: File[], source?: string): Promise<PdfImportResult> => {
+    const fd = new FormData();
+    for (const f of files) fd.append("files", f);
+    if (source) fd.append("source", source);
+    const res = await fetch("/api/candidates/import-pdf", { method: "POST", body: fd });
+    if (!res.ok) throw new Error(`import-pdf -> ${res.status}`);
+    return res.json();
+  },
+
   // --- CRUD (Mission 5.1 P1) ---
   editCandidate: (id: string, body: Record<string, unknown>) => send<{ ok?: boolean; error?: string }>("PATCH", `/api/candidates/${id}`, body),
   deleteCandidate: (id: string) => send<{ ok?: boolean }>("DELETE", `/api/candidates/${id}`),
@@ -171,7 +184,61 @@ export const api = {
 
   whatsappMessages: (candidateId?: string) =>
     getJson<{ messages: WaMessageItem[] }>(`/api/whatsapp/messages${candidateId ? `?candidateId=${candidateId}` : ""}`),
+
+  // --- Offers + placements (close the funnel, spec §8) ---
+  offers: (params: { jobId?: string; candidateId?: string; status?: string } = {}) => {
+    const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]);
+    const q = qs.toString();
+    return getJson<{ offers: OfferItem[] }>(`/api/offers${q ? `?${q}` : ""}`);
+  },
+  createOffer: (body: { candidateId: string; jobId: string; clientRate?: number; salary?: number; startDate?: string; notes?: string }) =>
+    send<{ offer?: { id: string; status: string }; error?: string; code?: string }>("POST", "/api/offers", body),
+  updateOffer: (id: string, body: { status: string; startDate?: string; declineReason?: string }) =>
+    send<{ offer?: { id: string; status: string }; placementId?: string | null; error?: string; code?: string }>("PATCH", `/api/offers/${id}`, body),
+
+  placements: (params: { clientId?: string; status?: string } = {}) => {
+    const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]);
+    const q = qs.toString();
+    return getJson<{ placements: PlacementItem[] }>(`/api/placements${q ? `?${q}` : ""}`);
+  },
+  updatePlacement: (id: string, body: Record<string, unknown>) =>
+    send<{ placement?: PlacementItem; error?: string }>("PATCH", `/api/placements/${id}`, body),
 };
+
+export interface OfferItem {
+  id: string;
+  status: "draft" | "sent" | "accepted" | "declined" | "withdrawn";
+  clientRate: number | null;
+  salary: number | null;
+  currency: string;
+  startDate: string | null;
+  expiresAt: string | null;
+  notes: string | null;
+  declineReason: string | null;
+  sentAt: string | null;
+  respondedAt: string | null;
+  createdAt: string;
+  candidate: { id: string; name: string; title: string | null; country: string | null } | null;
+  job: { id: string; title: string } | null;
+  client: { id: string; name: string; company: string | null } | null;
+}
+
+export interface PlacementItem {
+  id: string;
+  status: "active" | "ended" | "paused";
+  onboardingStatus: "pending" | "in_progress" | "complete";
+  title: string | null;
+  clientRate: number | null;
+  currency?: string;
+  startDate: string | null;
+  endDate: string | null;
+  notes: string | null;
+  createdAt?: string;
+  candidate: { id: string; name: string; title: string | null; country: string | null; flag: string | null } | null;
+  client: { id: string; name: string; company: string | null } | null;
+  job: { id: string; title: string } | null;
+  offerId?: string | null;
+}
 
 export interface WaMessageItem {
   id: string;
@@ -220,6 +287,60 @@ export interface PipelineEntry {
     clientRate: number | null;
     skills: string[];
   };
+}
+
+export interface PdfImportResult {
+  created: number;
+  duplicates: number;
+  errors: number;
+  total: number;
+  results: { file: string; status: "created" | "duplicate" | "error"; id?: string; name?: string | null; skills?: number; error?: string; nameConfidence?: "high" | "low" | "none" }[];
+}
+
+export interface JobSuggestion {
+  type: string;
+  severity: "info" | "warn" | "action";
+  text: string;
+  action?: string;
+}
+
+export interface WorkspaceCandidate {
+  id: string;
+  name: string;
+  country: string | null;
+  flag: string | null;
+  clientRate: number | null;
+  matchScore: number;
+  recommendation: string;
+  availabilityScore: number;
+  availabilityBand: string;
+  updatedAt: string;
+  strengths: string[];
+  risks: string[];
+  anomalies: string[];
+  skills: string[];
+}
+
+export interface JobWorkspace {
+  overview: {
+    id: string; title: string; seniority: string | null; status: string;
+    client: { id: string; name: string; company: string | null } | null;
+    budgetMin: number | null; budgetMax: number | null; budgetUnit: string | null;
+    englishLevel: string | null; experienceYearsMin: number | null;
+    workMode: string | null; employmentType: string | null; createdAt: string;
+    skills: { name: string; required: boolean }[];
+  };
+  counts: { matching: number; submitted: number; interviewed: number; approved: number; hired: number; inPipeline: number };
+  pipeline: Record<string, number>;
+  topCandidates: WorkspaceCandidate[];
+  clientActivity: {
+    lastAction: { type: string; candidate?: string; at: string } | null;
+    pendingApprovals: number;
+    shares: { token: string; label: string | null; revoked: boolean; views: number; lastViewedAt: string | null; url: string }[];
+  };
+  interviews: { id: string; candidate?: string; status: string; scheduledFor: string | null; completedAt: string | null; summary: string | null; recordingUrl: string | null; outcome: string | null; meetingUrl: string | null }[];
+  offers: { id: string; candidateId: string; candidate?: string; status: OfferItem["status"]; clientRate: number | null; startDate: string | null; createdAt: string }[];
+  notes: { id: string; candidate?: string; kind: string; body: string; internal: boolean; createdAt: string }[];
 }
 
 export interface JobListItem {

@@ -6,7 +6,8 @@ import { Avatar, Pill, initialsOf, AVAILABILITY_LABEL } from "@/components/primi
 import { api, JobListItem, TalentItem, ClientListItem } from "@/lib/client/api";
 import { AddCandidate } from "@/components/AddCandidate";
 
-export function VacanciesView({ onMatch }: { onMatch: (prompt: string) => void }) {
+export function VacanciesView({ onMatch, onOpenWorkspace }: { onMatch: (prompt: string) => void; onOpenWorkspace: (jobId: string) => void }) {
+  void onMatch;
   const [jobs, setJobs] = useState<JobListItem[] | null>(null);
   useEffect(() => {
     api.jobs().then((d) => setJobs(d.jobs)).catch(() => setJobs([]));
@@ -26,7 +27,7 @@ export function VacanciesView({ onMatch }: { onMatch: (prompt: string) => void }
       ) : (
         <div className="card-grid">
           {jobs.map((j) => (
-            <button key={j.id} className="vcard" onClick={() => onMatch(`Match candidates for ${j.title}`)}>
+            <button key={j.id} className="vcard" onClick={() => onOpenWorkspace(j.id)}>
               <div className="vcard-top">
                 <div>
                   <div className="vcard-title">{j.title}</div>

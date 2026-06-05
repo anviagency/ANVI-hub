@@ -30,6 +30,7 @@ model Client {
   submissions Submission[]
   events      CandidateEvent[]
   placements  Placement[]
+  offers      Offer[]
   shareLinks  ShareLink[]
   users       User[]
 
@@ -164,6 +165,9 @@ model Job {
   budgetUnit         String?   @map("budget_unit") // e.g. "usd_hour"
   englishLevel       String?   @map("english_level")
   experienceYearsMin Int?      @map("experience_years_min")
+  // Conversational-intake fields (Mission 7.1) shown on the Job Workspace.
+  workMode           String?   @map("work_mode")        // remote | hybrid | onsite
+  employmentType     String?   @map("employment_type")  // full_time | part_time | contract
   descriptionRaw     String?   @map("description_raw")
   status             JobStatus @default(open)
   archivedAt         DateTime? @map("archived_at")
@@ -178,6 +182,7 @@ model Job {
   interviews  Interview[]
   submissions Submission[]
   placements  Placement[]
+  offers      Offer[]
   pipelines   Pipeline[]
   notes       Note[]
   shareLinks  ShareLink[]
@@ -255,6 +260,7 @@ model Candidate {
   interviews  Interview[]
   submissions Submission[]
   placements  Placement[]
+  offers      Offer[]
   pipelines   Pipeline[]
   notes       Note[]
   shares      ShareLinkCandidate[]
@@ -346,6 +352,10 @@ enum EventType {
   client_approved
   client_rejected
   interview_requested
+  offer_extended
+  offer_accepted
+  offer_declined
+  offer_withdrawn
 }
 
 enum Actor {
@@ -441,21 +451,77 @@ model Submission {
 }
 
 // ---------------------------------------------------------------------------
+// OFFERS (close the funnel: approval → offer → placement → start date, spec §8)
+// ---------------------------------------------------------------------------
+enum OfferStatus {
+  draft
+  sent
+  accepted
+  declined
+  withdrawn
+}
+
+model Offer {
+  id            String      @id @default(cuid())
+  candidateId   String      @map("candidate_id")
+  jobId         String      @map("job_id")
+  clientId      String      @map("client_id")
+  status        OfferStatus @default(sent)
+  // clientRate is the price shown to the client; salary is the internal cost.
+  // Both are snapshotted at offer time so later candidate edits don't rewrite history.
+  clientRate    Float?      @map("client_rate")
+  salary        Float?
+  currency      String      @default("usd")
+  startDate     DateTime?   @map("start_date")
+  expiresAt     DateTime?   @map("expires_at")
+  notes         String?
+  declineReason String?     @map("decline_reason")
+  createdBy     String?     @map("created_by")
+  sentAt        DateTime?   @map("sent_at")
+  respondedAt   DateTime?   @map("responded_at")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  candidate Candidate  @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  job       Job        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  client    Client     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  placement Placement?
+
+  @@index([candidateId])
+  @@index([jobId])
+  @@index([clientId])
+  @@index([status])
+  @@map("offer")
+}
+
+// ---------------------------------------------------------------------------
 // PHASE 2: ongoing workforce
 // ---------------------------------------------------------------------------
 model Placement {
-  id          String    @id @default(cuid())
-  clientId    String    @map("client_id")
-  candidateId String    @map("candidate_id")
-  jobId       String?   @map("job_id")
-  startDate   DateTime? @map("start_date")
-  status      String    @default("active")
-  createdAt   DateTime  @default(now()) @map("created_at")
+  id               String    @id @default(cuid())
+  clientId         String    @map("client_id")
+  candidateId      String    @map("candidate_id")
+  jobId            String?   @map("job_id")
+  offerId          String?   @unique @map("offer_id")
+  title            String?
+  // clientRate snapshot for the placed worker (price billed to the client).
+  clientRate       Float?    @map("client_rate")
+  startDate        DateTime? @map("start_date")
+  endDate          DateTime? @map("end_date")
+  status           String    @default("active") // active | ended | paused
+  // pending | in_progress | complete — drives the onboarding checklist.
+  onboardingStatus String    @default("pending") @map("onboarding_status")
+  notes            String?
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   client    Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
   candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
   job       Job?      @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  offer     Offer?    @relation(fields: [offerId], references: [id], onDelete: SetNull)
 
+  @@index([clientId])
+  @@index([status])
   @@map("placement")
 }
 
@@ -468,6 +534,7 @@ enum PipelineStage {
   sent_to_client
   interview
   approved
+  offer
   rejected
   hired
 }

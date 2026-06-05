@@ -12,6 +12,7 @@ export const STAGES: PipelineStage[] = [
   "sent_to_client",
   "interview",
   "approved",
+  "offer",
   "rejected",
   "hired",
 ];
@@ -22,6 +23,7 @@ export const STAGE_LABEL: Record<PipelineStage, string> = {
   sent_to_client: "Sent to client",
   interview: "Interview",
   approved: "Approved",
+  offer: "Offer",
   rejected: "Rejected",
   hired: "Hired",
 };
@@ -30,12 +32,17 @@ export const STAGE_LABEL: Record<PipelineStage, string> = {
 // rejected can be re-opened. A client can approve from ANY post-screening stage
 // (screened / sent_to_client / interview) — Mission 5.1 P0: the real-world close
 // is "screen → client approves", which must succeed.
+//
+// The offer stage closes the funnel (spec §8): a candidate moves to `offer` once
+// an offer is extended (from approved or interview), then to `hired` when the
+// offer is accepted. `approved → hired` is preserved for direct hires.
 const ALLOWED: Record<PipelineStage, PipelineStage[]> = {
   new: ["screened", "sent_to_client", "rejected"],
   screened: ["sent_to_client", "interview", "approved", "rejected", "new"],
-  sent_to_client: ["interview", "approved", "rejected", "screened"],
-  interview: ["approved", "rejected", "sent_to_client"],
-  approved: ["hired", "rejected", "interview"],
+  sent_to_client: ["interview", "approved", "offer", "rejected", "screened"],
+  interview: ["approved", "offer", "rejected", "sent_to_client"],
+  approved: ["offer", "hired", "rejected", "interview"],
+  offer: ["hired", "rejected", "approved"],
   rejected: ["new", "screened", "sent_to_client"],
   hired: ["rejected"],
 };
@@ -107,14 +114,9 @@ export async function applyStage(opts: {
   // Sync the client-facing Submission when the candidate reaches/leaves client stages.
   await syncSubmission(candidateId, jobId, to, opts.feedback ?? null);
 
-  // Create a Placement when hired.
+  // Create a Placement when hired (idempotent + offer-aware).
   if (to === "hired") {
-    const job = await prisma.job.findUnique({ where: { id: jobId } });
-    if (job?.clientId) {
-      await prisma.placement.create({
-        data: { clientId: job.clientId, candidateId, jobId, startDate: new Date(), status: "active" },
-      });
-    }
+    await ensurePlacement(candidateId, jobId);
     await prisma.candidate.update({ where: { id: candidateId }, data: { availability: "placed" } });
   }
 
@@ -161,6 +163,46 @@ async function syncSubmission(
     create: { clientId: job.clientId, jobId, candidateId, clientStatus, clientFeedback: feedback },
     update: { clientStatus, ...(feedback ? { clientFeedback: feedback } : {}) },
   });
+}
+
+/**
+ * Create the Placement that closes the funnel when a candidate is hired.
+ *
+ * Idempotent: a candidate hired twice for the same job (e.g. an at-least-once
+ * worker retry, or an offer-accept that also flips the stage) yields exactly one
+ * placement. Offer-aware: when an accepted offer exists, the placement inherits
+ * its start date and client rate so the real start date is honoured rather than
+ * defaulting to "now".
+ *
+ * @returns the placement id, or null when the job has no client to place against.
+ */
+export async function ensurePlacement(candidateId: string, jobId: string): Promise<string | null> {
+  const existing = await prisma.placement.findFirst({ where: { candidateId, jobId } });
+  if (existing) return existing.id;
+
+  const job = await prisma.job.findUnique({ where: { id: jobId } });
+  if (!job?.clientId) return null;
+
+  const acceptedOffer = await prisma.offer.findFirst({
+    where: { candidateId, jobId, status: "accepted" },
+    orderBy: { respondedAt: "desc" },
+  });
+  const candidate = await prisma.candidate.findUnique({ where: { id: candidateId } });
+
+  const placement = await prisma.placement.create({
+    data: {
+      clientId: job.clientId,
+      candidateId,
+      jobId,
+      offerId: acceptedOffer?.id ?? null,
+      title: candidate?.title ?? job.title,
+      clientRate: acceptedOffer?.clientRate ?? candidate?.clientRate ?? null,
+      startDate: acceptedOffer?.startDate ?? new Date(),
+      status: "active",
+      onboardingStatus: "pending",
+    },
+  });
+  return placement.id;
 }
 
 export class PipelineTransitionError extends Error {

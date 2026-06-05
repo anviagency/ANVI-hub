@@ -189,6 +189,24 @@ response cards in `ChatView`. Simulation: `scripts/sim-m52.ts` →
 than the menu/form workflow). Scheduling, single-candidate intake, and CRUD edits
 remain in the UI by design.
 
+## Conversational copilot + Job Workspace (mission 7.1)
+
+The copilot is now a guided conversation, not a command line, and every job gets a
+workspace:
+- **Conversational job creation** — the AI asks for *missing* fields one at a time
+  (budget → work mode → employment type → English → client), with buttons, and
+  resolves/creates the client conversationally, then opens the workspace. State is
+  carried across turns (`context.pendingJob`); logic in `src/lib/chat/intake.ts`.
+- **Job Workspace** (`/api/jobs/:id/workspace`, `JobWorkspace.tsx`) — overview,
+  candidate-summary counts, visual pipeline, top candidates, client activity,
+  interview history, notes, and a **job-scoped AI panel** to ask in place.
+- **Proactive suggestions** (`/api/jobs/:id/suggestions`) — "you have N strong
+  candidates not submitted", "client hasn't reviewed in N days", "stale
+  availability", "missing salary range", etc.
+
+Reached from the "Open workspace" card after creation and from any Vacancies card.
+See `reports/recruiter-redesign-m71.md`.
+
 ## Out of scope (later phases)
 WhatsApp Assistant (§7), Timeless interview capture (§5 — `Interview` table exists, no
 provider wired), and the broader ongoing-workforce Client Portal (§6). `Submission`,
