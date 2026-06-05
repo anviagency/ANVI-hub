@@ -9,8 +9,8 @@ import type { ParsedJob } from "@/lib/types";
 const STARTERS = [
   { icon: "briefcase", label: "Need a Senior Full-Stack dev: React, Next.js, Node, Postgres, 5+ yrs, $28-42/hr" },
   { icon: "users", label: "Match candidates for the Full-Stack role" },
-  { icon: "shield", label: "Find me people but flag any anomalies" },
-  { icon: "search", label: "Find candidates like Artem but cheaper" },
+  { icon: "sparkle2", label: "Explain why the top candidates ranked highest" },
+  { icon: "clock", label: "What's pending — what should I do next?" },
 ];
 
 type Msg =
@@ -332,7 +332,145 @@ function ResponseBody({
       </div>
     );
   }
+  if (resp.kind === "explain") return <ExplainCard data={resp.data} onOpenCandidate={onOpenCandidate} />;
+  if (resp.kind === "availability") return <AvailabilityCard data={resp.data} onOpenCandidate={onOpenCandidate} />;
+  if (resp.kind === "summary") return <SummaryCard data={resp.data} onOpenCandidate={onOpenCandidate} />;
+  if (resp.kind === "comparison") return <ComparisonCard data={resp.data} onOpenCandidate={onOpenCandidate} />;
+  if (resp.kind === "submit_result") return <SubmitCard data={resp.data} />;
+  if (resp.kind === "share_result") return <ShareResultCard data={resp.data} />;
+  if (resp.kind === "pending") return <PendingCard data={resp.data} />;
   return null;
+}
+
+type D = Record<string, unknown>;
+
+function ExplainCard({ data, onOpenCandidate }: { data: D; onOpenCandidate: (id: string, jobId?: string) => void }) {
+  const list = (data.list as { id: string; name: string; matchScore: number; recommendation: string; reasons: string[]; strengths: string[]; risks: string[]; anomalies: string[] }[]) ?? [];
+  return (
+    <div className="cres-list">
+      {list.map((c) => (
+        <div key={c.id} className="rcard" style={{ cursor: "pointer" }} onClick={() => onOpenCandidate(c.id, data.jobId as string)}>
+          <div className="rcard-head" style={{ marginBottom: 8 }}>
+            <div className="rcard-title" style={{ fontSize: 16 }}>{c.name}</div>
+            <Pill tone={c.recommendation === "strong" ? "good" : c.recommendation === "weak" ? "bad" : "warn"}>{c.matchScore} · {c.recommendation}</Pill>
+          </div>
+          <div style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>
+            {c.reasons.map((r, i) => <div key={i}>↑ {r}</div>)}
+            {c.anomalies.map((a, i) => <div key={"a" + i} style={{ color: "var(--bad)" }}>🔴 {a}</div>)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AvailabilityCard({ data, onOpenCandidate }: { data: D; onOpenCandidate: (id: string, jobId?: string) => void }) {
+  const list = (data.list as { id: string; name: string; score: number; band: string; availability: string }[]) ?? [];
+  return (
+    <div className="cres-list">
+      {list.map((c) => (
+        <button key={c.id} className="cres" onClick={() => onOpenCandidate(c.id)}>
+          <MatchRing score={c.score} size={42} />
+          <div className="cres-main">
+            <div className="cres-name">{c.name}</div>
+            <div className="cres-sub">{c.availability} · availability confidence {c.band}</div>
+          </div>
+          <Pill tone={c.band === "high" ? "good" : c.band === "low" ? "bad" : "warn"}>{c.score}%</Pill>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SummaryCard({ data, onOpenCandidate }: { data: D; onOpenCandidate: (id: string, jobId?: string) => void }) {
+  const c = data.candidate as { id: string; name: string; title: string; country: string; english: string; clientRate: number; availability: string; source: string; summary: string; skills: string[]; matchScore: number | null; recommendation: string | null; strengths: string[]; risks: string[]; anomalies: string[]; jobTitle: string | null };
+  return (
+    <div className="rcard" style={{ cursor: "pointer" }} onClick={() => onOpenCandidate(c.id)}>
+      <div className="rcard-head">
+        <div><div className="rcard-eyebrow">candidate summary</div><div className="rcard-title">{c.name}</div></div>
+        {c.matchScore != null && <Pill tone="accent">{c.matchScore}{c.jobTitle ? ` · ${c.jobTitle}` : ""}</Pill>}
+      </div>
+      <div className="kv-grid">
+        <div className="kv"><span>Title</span><b>{c.title ?? "—"}</b></div>
+        <div className="kv"><span>Country</span><b>{c.country ?? "—"}</b></div>
+        <div className="kv"><span>Rate</span><b>{c.clientRate != null ? `$${c.clientRate}/hr` : "—"}</b></div>
+        <div className="kv"><span>Source</span><b>{c.source ?? "—"}</b></div>
+      </div>
+      {c.summary && <div style={{ fontSize: 13.5, color: "var(--ink-soft)", marginBottom: 8 }}>{c.summary}</div>}
+      <div className="tag-row tag-row-sm">{c.skills.slice(0, 8).map((s) => <span key={s} className="tag tag-sm">{s}</span>)}</div>
+      {c.strengths.length > 0 && <div style={{ marginTop: 8, fontSize: 12.5 }}>{c.strengths.map((s, i) => <div key={i}>✅ {s}</div>)}</div>}
+      {c.risks.length > 0 && <div style={{ marginTop: 4, fontSize: 12.5 }}>{c.risks.map((s, i) => <div key={i}>⚠️ {s}</div>)}</div>}
+      {c.anomalies.length > 0 && <div style={{ marginTop: 4, fontSize: 12.5, color: "var(--bad)" }}>{c.anomalies.map((s, i) => <div key={i}>🔴 {s}</div>)}</div>}
+    </div>
+  );
+}
+
+function ComparisonCard({ data, onOpenCandidate }: { data: D; onOpenCandidate: (id: string, jobId?: string) => void }) {
+  const cards = (data.cards as { id: string; name: string; country: string; english: string; clientRate: number; matchScore: number; recommendation: string; strengths: string[]; risks: string[]; availabilityScore: number }[]) ?? [];
+  const rec = data.recommendation as { id: string; name: string } | undefined;
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        {cards.map((c) => (
+          <div key={c.id} className="rcard" style={{ cursor: "pointer", borderColor: rec?.id === c.id ? "var(--good)" : undefined }} onClick={() => onOpenCandidate(c.id)}>
+            <div className="rcard-title" style={{ fontSize: 15 }}>{c.name}{rec?.id === c.id && " ⭐"}</div>
+            <div style={{ fontSize: 12, color: "var(--mute)", margin: "2px 0 8px" }}>{[c.country, c.english, c.clientRate != null ? `$${c.clientRate}/hr` : null].filter(Boolean).join(" · ")}</div>
+            <div className="tag-row tag-row-sm" style={{ marginBottom: 6 }}>
+              <span className="tag tag-sm tag-ai">match {c.matchScore}</span>
+              <span className="tag tag-sm">avail {c.availabilityScore}%</span>
+            </div>
+            {c.strengths.map((s, i) => <div key={i} style={{ fontSize: 12 }}>✅ {s}</div>)}
+            {c.risks.map((s, i) => <div key={"r" + i} style={{ fontSize: 12, color: "var(--warn)" }}>⚠️ {s}</div>)}
+          </div>
+        ))}
+      </div>
+      {rec && <div className="banner banner-good" style={{ marginTop: 10 }}>Recommendation: {rec.name}</div>}
+    </div>
+  );
+}
+
+function SubmitCard({ data }: { data: D }) {
+  const submitted = (data.submitted as { name: string }[]) ?? [];
+  return (
+    <div className="rcard">
+      <div className="rcard-eyebrow">submitted to {String(data.client)}</div>
+      {submitted.length === 0 ? <div style={{ fontSize: 13, color: "var(--mute)" }}>Nothing new to submit.</div> :
+        submitted.map((s, i) => <div key={i} style={{ fontSize: 14, padding: "3px 0" }}>📤 {s.name}</div>)}
+      <div className="banner banner-info" style={{ marginTop: 10 }}><Icon name="message" size={13} /> WhatsApp queued to the client.</div>
+    </div>
+  );
+}
+
+function ShareResultCard({ data }: { data: D }) {
+  const url = `${typeof location !== "undefined" ? location.origin : ""}${data.url}`;
+  const names = (data.candidates as string[]) ?? [];
+  return (
+    <div className="rcard">
+      <div className="rcard-eyebrow">client link · {names.length} candidates</div>
+      <div className="tg-body" style={{ fontFamily: "var(--mono)", fontSize: 12.5, wordBreak: "break-all" }}>{url}</div>
+      <div className="rcard-actions">
+        <button className="btn btn-primary" onClick={() => navigator.clipboard?.writeText(url)}><Icon name="link" size={14} /> Copy link</button>
+        <a className="btn btn-ghost" href={data.url as string} target="_blank" rel="noreferrer">Open</a>
+      </div>
+    </div>
+  );
+}
+
+function PendingCard({ data }: { data: D }) {
+  const items = (data.items as { type: string; label: string; action: string }[]) ?? [];
+  const icon = (t: string) => (t === "screen" ? "calendar" : t === "submit" ? "share" : t === "match" ? "sparkle2" : t === "interview" ? "video" : "clock");
+  return (
+    <div className="cres-list">
+      {items.length === 0 && <div className="empty">No pending actions — you're caught up.</div>}
+      {items.map((it, i) => (
+        <div key={i} className="cres" style={{ cursor: "default" }}>
+          <span className="starter-ic"><Icon name={icon(it.type)} size={15} /></span>
+          <div className="cres-main"><div className="cres-name" style={{ fontSize: 14 }}>{it.label}</div></div>
+          <span className="pill pill-default">{it.type}</span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function AssistantMessage({

@@ -22,14 +22,17 @@ export interface CandidateCard {
   scoreBreakdown?: ScoreComponent[];
 }
 
-export type ChatKind = "job_preview" | "candidates" | "status" | "fallback";
+export type ChatKind =
+  | "job_preview" | "candidates" | "status" | "fallback"
+  | "explain" | "availability" | "summary" | "comparison" | "submit_result" | "share_result" | "pending";
 
 export interface ChatResponse {
   intent: string;
   thinking: string[];
   reply: string;
   kind: ChatKind;
-  data: {
+  // Data is intentionally broad — each kind populates a subset (rendered by ResponseBody).
+  data: Record<string, unknown> & {
     parsed?: ParsedJob;
     aiBacked?: boolean;
     jobId?: string;

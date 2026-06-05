@@ -30,6 +30,9 @@ export type Intent =
   | "find_similar"
   | "availability"
   | "submit"
+  | "share"
+  | "explain"
+  | "summarize"
   | "followup"
   | "status"
   | "smalltalk";

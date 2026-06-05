@@ -6,6 +6,10 @@ import { parseJob } from "@/lib/ai/job-parser";
 import { loadJobRow, serializeMatch } from "@/lib/jobs";
 import { runMatch, persistAnalyses } from "@/lib/matching/funnel";
 import { aiEnabled } from "@/lib/ai/anthropic";
+import { authorizeMutation, RECRUITER_ROLES } from "@/lib/auth/guard";
+import {
+  handleExplain, handleAvailability, handleSummarize, handleCompare, handleSubmit, handleShare, handlePending,
+} from "@/lib/chat/copilot";
 
 export const runtime = "nodejs";
 
@@ -19,32 +23,63 @@ const Body = z.object({
     .optional(),
 });
 
-// The Recruiter Copilot brain (spec §2). One endpoint, intent-routed.
+// The Recruiter Copilot brain (spec §2 / Mission 5.2). One endpoint, intent-routed.
+// Auth-guarded because it reads candidate data and performs actions (submit/share).
 export async function POST(req: NextRequest) {
+  const auth = await authorizeMutation(req, RECRUITER_ROLES);
+  if (!auth.ok) return auth.response;
+
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
   const { message, context } = parsed.data;
+  const jobId = context?.jobId;
   const routed = await routeIntent(message);
+  const count = typeof routed.entities.count === "number" ? Math.min(routed.entities.count, 10) : 3;
+  const names = Array.isArray(routed.entities.names) ? (routed.entities.names as string[]) : [];
 
   switch (routed.intent) {
     case "create_job":
       return handleCreateJob(message);
     case "match_candidates":
     case "find_similar":
-      return handleMatch(message, context?.jobId, routed.entities);
+      return handleMatch(message, jobId, routed.entities);
     case "status":
       return handleStatus();
+    case "explain":
+      return NextResponse.json(await handleExplain(message, jobId));
     case "availability":
+      return NextResponse.json(await handleAvailability(message, jobId));
+    case "summarize":
+      return NextResponse.json(await handleSummarize(message, jobId));
     case "compare":
+      return NextResponse.json(await handleCompare(message, names, jobId));
     case "submit":
+      return NextResponse.json(await handleSubmit(message, count, auth.user.id, jobId));
+    case "share":
+      return NextResponse.json(await handleShare(message, count, auth.user.id, jobId));
     case "followup":
+      return NextResponse.json(await handlePending());
     case "attach_client":
-      return handleNotYet(routed.intent);
+      return handleAttachClient(message);
     default:
       return handleFallback();
   }
+}
+
+async function handleAttachClient(message: string) {
+  const { findClientInMessage } = await import("@/lib/chat/copilot");
+  const client = await findClientInMessage(message);
+  return NextResponse.json({
+    intent: "attach_client",
+    thinking: [],
+    reply: client
+      ? `Found client ${client.company ?? client.name}. Paste or open the role and I'll attach it.`
+      : "Tell me the client name and I'll resolve or create it when you save a role.",
+    kind: "fallback",
+    data: { client: client ? { id: client.id, name: client.name, company: client.company } : null },
+  });
 }
 
 async function handleCreateJob(message: string) {
@@ -138,26 +173,16 @@ async function handleStatus() {
   });
 }
 
-function handleNotYet(intent: string) {
-  return NextResponse.json({
-    intent,
-    thinking: [],
-    reply:
-      `“${intent.replace("_", " ")}” is part of a later build phase (WhatsApp/portal). ` +
-      "In this slice I can structure roles, attach clients, and run deep candidate matching. Try “match”.",
-    kind: "fallback",
-    data: {},
-  });
-}
-
 function handleFallback() {
   return NextResponse.json({
     intent: "smalltalk",
     thinking: [],
-    reply: aiEnabled
-      ? "I can open vacancies, structure roles, and search the talent pool with deep analysis. What are we hiring?"
-      : "I can structure a role from a paste, attach a client, and run deep candidate matching with anomaly detection. Paste a job to start.",
+    reply:
+      "I can run your whole desk from here: paste a role to structure it, “match”, “explain the top candidates”, " +
+      "“is Artem available?”, “summarize Sofia”, “compare Artem and Oleksandr”, “send top 3 to Andy”, " +
+      "“share a client link”, or “what's pending?”.",
     kind: "fallback",
     data: {},
   });
 }
+void aiEnabled;

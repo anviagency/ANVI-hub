@@ -165,6 +165,30 @@ in ANVI (Create → Add → Screen → Schedule → Submit → Approve → Place
 Tool-switches measured **13 → 5** (3 of the 5 are inherent — video call / phone /
 e-sign). See `reports/product-review-m51.md` and `scripts/sim-m51.ts`.
 
+## Recruiter Copilot (mission 5.2)
+
+The chat is now the primary interface — **all 10 targeted capabilities run from chat**,
+no new infrastructure (everything routes to existing backend):
+
+| Say in chat | Does |
+|---|---|
+| *"Need a Senior React dev, 6+ yrs… $40-55/hr"* | structures the role (preview → attach client → save) |
+| *"match"* / *"find candidates like Artem but cheaper"* | runs the two-stage funnel |
+| *"explain why these ranked highest"* | per-candidate score breakdown + reasons |
+| *"is Artem available?"* / *"are the top candidates available?"* | availability-confidence scores |
+| *"summarize Sofia"* | candidate one-pager |
+| *"compare Artem and Oleksandr"* | side-by-side + a recommendation |
+| *"send top 3 to Andy"* | submits to client (pipeline → sent_to_client, fires WhatsApp) |
+| *"share a client link with the top 3"* | mints a secure share link |
+| *"what's pending?"* / *"what should I do next?"* | open recruiter actions across the pipeline |
+
+`/api/chat` is auth-guarded (it reads candidate data and performs actions). Intent
+routing in `src/lib/ai/intent-router.ts`, handlers in `src/lib/chat/copilot.ts`,
+response cards in `ChatView`. Simulation: `scripts/sim-m52.ts` →
+`reports/copilot-sim-m52.md` (10/10 via chat, ~80% fewer interactions, ~83% faster
+than the menu/form workflow). Scheduling, single-candidate intake, and CRUD edits
+remain in the UI by design.
+
 ## Out of scope (later phases)
 WhatsApp Assistant (§7), Timeless interview capture (§5 — `Interview` table exists, no
 provider wired), and the broader ongoing-workforce Client Portal (§6). `Submission`,

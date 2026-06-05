@@ -11,7 +11,15 @@ describe("routeIntentDeterministic", () => {
     ["is Vasya still available?", "availability"],
     ["send top 5 to Andy", "submit"],
     ["who haven't I contacted?", "followup"],
-    ["what's pending with Andy?", "status"],
+    ["what's pending?", "followup"],
+    ["what's happening with Andy?", "status"],
+    // Mission 5.2 new intents
+    ["explain why these candidates ranked highest", "explain"],
+    ["summarize Artem", "summarize"],
+    ["tell me about Sofia", "summarize"],
+    ["share a client link for the role", "share"],
+    ["create a portal link with the top 3", "share"],
+    ["what should I do next?", "followup"],
   ];
 
   for (const [text, expected] of cases) {

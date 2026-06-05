@@ -14,6 +14,9 @@ const VALID_INTENTS: Intent[] = [
   "find_similar",
   "availability",
   "submit",
+  "share",
+  "explain",
+  "summarize",
   "followup",
   "status",
   "smalltalk",
@@ -23,6 +26,8 @@ const VALID_INTENTS: Intent[] = [
 export function routeIntentDeterministic(text: string): RoutedIntent | null {
   const t = text.toLowerCase().trim();
   const entities: Record<string, unknown> = {};
+  const countMatch = t.match(/top\s+(\d+)|\b(\d+)\s+candidates?\b/);
+  if (countMatch) entities.count = parseInt(countMatch[1] ?? countMatch[2], 10);
 
   // compare "X and Y" / "X vs Y" — match on lowercase, extract names from original text.
   const cmp = t.match(/\bcompare\b\s+(.+)/);
@@ -32,7 +37,22 @@ export function routeIntentDeterministic(text: string): RoutedIntent | null {
       .split(/\s+(?:and|vs\.?|&|with)\s+/i)
       .map((s) => s.replace(/[^a-zà-ÿ\s-]/gi, "").trim())
       .filter(Boolean);
-    return { intent: "compare", entities: { names }, source: "deterministic" };
+    return { intent: "compare", entities: { ...entities, names }, source: "deterministic" };
+  }
+
+  // summarize / profile of a candidate
+  if (/\b(summari[sz]e|summary of|tell me about|profile of|brief on|who is)\b/.test(t)) {
+    return { intent: "summarize", entities, source: "deterministic" };
+  }
+
+  // explain the matches / recommendations
+  if (/\b(explain|why (these|them|that|this|did)|reason|justify|break ?down)\b/.test(t) && !/\bcompare\b/.test(t)) {
+    return { intent: "explain", entities, source: "deterministic" };
+  }
+
+  // share / create a client link (must come before submit; both can say "with Andy")
+  if (/\blink\b/.test(t) || /\b(share|generate|create|make)\b.*\b(portal|link)\b/.test(t) || /\bclient (link|portal)\b/.test(t)) {
+    return { intent: "share", entities, source: "deterministic" };
   }
 
   // find similar / cheaper
@@ -42,24 +62,22 @@ export function routeIntentDeterministic(text: string): RoutedIntent | null {
   }
 
   // availability
-  if (/\b(available|availability|still free|on the market)\b/.test(t)) {
+  if (/\b(available|availability|still free|on the market|free right now)\b/.test(t)) {
     return { intent: "availability", entities, source: "deterministic" };
   }
 
   // submit / send to client
-  if (/\b(send|submit|share)\b/.test(t) && /\b(client|to|top|candidate)\b/.test(t)) {
-    const n = t.match(/top\s+(\d+)/);
-    if (n) entities.count = parseInt(n[1], 10);
+  if (/\b(send|submit|present)\b/.test(t) && /\b(client|to|top|candidate)\b/.test(t)) {
     return { intent: "submit", entities, source: "deterministic" };
   }
 
-  // followup
-  if (/\b(follow[\s-]?up|haven'?t (i )?contacted|stalled|idle|chase)\b/.test(t)) {
+  // followup / pending actions
+  if (/\b(follow[\s-]?up|haven'?t (i )?contacted|stalled|idle|chase|pending|to ?do|next actions?|my actions|action items|what should i do|what needs)\b/.test(t)) {
     return { intent: "followup", entities, source: "deterministic" };
   }
 
   // status
-  if (/\b(status|pending|what'?s (up|happening|pending)|where (are|is) we)\b/.test(t)) {
+  if (/\b(status|what'?s (up|happening)|where (are|is) we|how('?s| is) .* (going|doing))\b/.test(t)) {
     return { intent: "status", entities, source: "deterministic" };
   }
 
@@ -85,7 +103,7 @@ export function routeIntentDeterministic(text: string): RoutedIntent | null {
 }
 
 const SYSTEM_PROMPT = `Classify the recruiter message into exactly one intent and extract entities.
-Return ONLY JSON: {"intent": "<one of: create_job, attach_client, match_candidates, compare, find_similar, availability, submit, followup, status, smalltalk>", "entities": {}}`;
+Return ONLY JSON: {"intent": "<one of: create_job, attach_client, match_candidates, compare, find_similar, availability, submit, share, explain, summarize, followup, status, smalltalk>", "entities": {"names": [string], "count": number, "client": string}}`;
 
 interface LlmIntent {
   intent: string;
