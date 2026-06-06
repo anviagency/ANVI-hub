@@ -24,6 +24,7 @@
     "benchmark": "tsx scripts/benchmark.ts",
     "client-sim": "tsx scripts/client-sim.ts",
     "sim-offers": "tsx scripts/sim-offers.ts",
+    "sim-pilot-m8": "tsx scripts/sim-pilot-m8.ts",
     "worker": "tsx scripts/worker.ts",
     "validate-intelligence": "tsx scripts/validate-intelligence.ts",
     "loadtest": "tsx scripts/loadtest.ts"

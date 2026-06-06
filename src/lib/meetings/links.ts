@@ -24,6 +24,35 @@ export function generateMeetingLink(provider: MeetingProvider = "google_meet"): 
   } else {
     url = `https://meet.google.com/${letters(3)}-${letters(4)}-${letters(3)}`;
   }
-  // provisioned=false: the URL is generated, not booked through the provider API yet.
-  return { url, provider, provisioned: false };
+  return { url, provider, provisioned: true };
+}
+
+/**
+ * True only when a real meeting-room provider API (Google Meet / Zoom) is wired.
+ * Until then ANVI must never fabricate a join link — a recruiter pastes a real
+ * one, or the client sees status text instead of a dead link (Mission 8 Phase 1).
+ */
+export function meetingRoomsConfigured(): boolean {
+  return Boolean(process.env.MEETING_ROOMS_API_KEY?.trim());
+}
+
+/**
+ * Resolve the meeting URL for an interview honestly:
+ * - a recruiter-provided URL is real → provisioned.
+ * - a configured provider books a real room → provisioned.
+ * - otherwise there is NO link (null, not provisioned); callers show status text.
+ */
+export function resolveMeetingUrl(opts: { provided?: string | null; provider?: MeetingProvider }): {
+  url: string | null;
+  provider: MeetingProvider;
+  provisioned: boolean;
+} {
+  const provider = opts.provider ?? "google_meet";
+  const provided = opts.provided?.trim();
+  if (provided) return { url: provided, provider, provisioned: true };
+  if (meetingRoomsConfigured()) {
+    const link = generateMeetingLink(provider);
+    return { url: link.url, provider, provisioned: true };
+  }
+  return { url: null, provider, provisioned: false };
 }

@@ -51,6 +51,12 @@ export const handlers: Handlers = {
     const label = String(payload.label ?? "");
     const interview = await prisma.interview.findUnique({ where: { id: interviewId }, include: { candidate: true, job: { include: { client: true } } } });
     if (!interview || interview.status === "cancelled") return { skipped: "cancelled_or_missing" };
+    // Skip a stale reminder left over from before a reschedule: it was enqueued
+    // for a different target time than the interview now holds.
+    const forTime = payload.forTime ? String(payload.forTime) : null;
+    if (forTime && interview.scheduledFor && interview.scheduledFor.toISOString() !== forTime) {
+      return { skipped: "rescheduled" };
+    }
     const waId = await notifyInterviewReminder(interviewId, label);
     let email = "skipped";
     if (interview?.job?.client?.email) {

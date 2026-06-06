@@ -171,16 +171,23 @@ export const api = {
   editNote: (id: string, body: Record<string, unknown>) => send<{ ok?: boolean }>("PATCH", `/api/notes/${id}`, body),
   deleteNote: (id: string) => send<{ ok?: boolean }>("DELETE", `/api/notes/${id}`),
 
-  // --- Scheduling (Mission 5.1 P3) ---
-  scheduleInterview: (candidateId: string, jobId: string, scheduledFor: string, meetingProvider = "google_meet") =>
-    postJson<{ interviewId?: string; meetingTag?: string; meetingUrl?: string; reminders?: string[]; error?: string }>("/api/interviews/schedule", {
-      candidateId,
-      jobId,
-      scheduledFor,
-      meetingProvider,
-    }),
-  rescheduleInterview: (id: string, scheduledFor: string) => send<{ ok?: boolean; reminders?: string[] }>("PATCH", `/api/interviews/${id}`, { scheduledFor }),
+  // --- Scheduling (Mission 5.1 P3 / Mission 8 Phase 2) ---
+  scheduleInterview: (
+    candidateId: string,
+    jobId: string,
+    opts: { scheduledFor?: string; proposedSlots?: string[]; timezone?: string; durationMins?: number; meetingProvider?: string; meetingUrl?: string }
+  ) =>
+    postJson<{ interviewId?: string; status?: string; meetingTag?: string; meetingUrl?: string | null; meetingProvisioned?: boolean; reminders?: string[]; proposedSlots?: string[]; error?: string }>(
+      "/api/interviews/schedule",
+      { candidateId, jobId, ...opts }
+    ),
+  rescheduleInterview: (id: string, scheduledFor: string, meetingUrl?: string) =>
+    send<{ ok?: boolean; reminders?: string[] }>("PATCH", `/api/interviews/${id}`, { scheduledFor, ...(meetingUrl ? { meetingUrl } : {}) }),
   cancelInterview: (id: string, reason?: string) => send<{ ok?: boolean }>("DELETE", `/api/interviews/${id}`, { reason }),
+
+  // --- Candidate self-service link (Mission 8 Phase 3) ---
+  createCandidateAccess: (id: string, jobId?: string) =>
+    send<{ token?: string; url?: string; error?: string }>("POST", `/api/candidates/${id}/access`, jobId ? { jobId } : {}),
 
   whatsappMessages: (candidateId?: string) =>
     getJson<{ messages: WaMessageItem[] }>(`/api/whatsapp/messages${candidateId ? `?candidateId=${candidateId}` : ""}`),

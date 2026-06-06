@@ -30,6 +30,8 @@ export function CandidateProfile({
   const [noteKind, setNoteKind] = useState("note");
   const [shareMsg, setShareMsg] = useState<string | null>(null);
   const [scheduleMsg, setScheduleMsg] = useState<string | null>(null);
+  const [schedulePanel, setSchedulePanel] = useState<{ rescheduleId?: string } | null>(null);
+  const [candidateLinkMsg, setCandidateLinkMsg] = useState<string | null>(null);
 
   const load = useCallback(() => {
     api.candidate(candidateId, jobId).then(setData).catch(() => setError("Could not load candidate."));
@@ -51,19 +53,44 @@ export function CandidateProfile({
     load();
   }
 
-  async function scheduleScreening() {
-    const targetJob = jobId || data?.pipelines[0]?.jobId;
-    if (!targetJob) {
+  const targetJobId = jobId || data?.pipelines[0]?.jobId || null;
+
+  async function submitSchedule(opts: { scheduledFor?: string; proposedSlots?: string[]; timezone: string; durationMins: number; meetingUrl?: string }) {
+    if (schedulePanel?.rescheduleId) {
+      if (!opts.scheduledFor) return;
+      await api.rescheduleInterview(schedulePanel.rescheduleId, opts.scheduledFor, opts.meetingUrl);
+      setScheduleMsg("Rescheduled");
+      setSchedulePanel(null);
+      load();
+      return;
+    }
+    if (!targetJobId) {
       setScheduleMsg("No job in pipeline");
       return;
     }
-    const when = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(); // +2 days
-    const res = await api.scheduleInterview(candidateId, targetJob, when);
+    const res = await api.scheduleInterview(candidateId, targetJobId, opts);
     if (res.interviewId) {
-      setScheduleMsg(`Scheduled · reminders: ${res.reminders?.join(", ") || "none"}`);
+      setScheduleMsg(res.status === "proposed" ? `Proposed ${res.proposedSlots?.length ?? 0} time(s)` : `Scheduled · reminders: ${res.reminders?.join(", ") || "none"}`);
+      setSchedulePanel(null);
       load();
     } else {
       setScheduleMsg(res.error || "Failed");
+    }
+  }
+
+  async function candidateLink() {
+    const res = await api.createCandidateAccess(candidateId, targetJobId ?? undefined);
+    if (res.url) {
+      const full = `${location.origin}${res.url}`;
+      try {
+        await navigator.clipboard.writeText(full);
+        setCandidateLinkMsg("Candidate link copied");
+      } catch {
+        setCandidateLinkMsg(full);
+      }
+      setTimeout(() => setCandidateLinkMsg(null), 4000);
+    } else {
+      setCandidateLinkMsg(res.error || "Failed");
     }
   }
 
@@ -87,10 +114,9 @@ export function CandidateProfile({
     await api.deleteCandidate(candidateId);
     onBack();
   }
-  async function rescheduleIv(id: string) {
-    const when = new Date(Date.now() + 4 * 86400000).toISOString();
-    await api.rescheduleInterview(id, when);
-    load();
+  function rescheduleIv(id: string) {
+    setScheduleMsg(null);
+    setSchedulePanel({ rescheduleId: id });
   }
   async function cancelIv(id: string) {
     const reason = prompt("Cancel reason?") || undefined;
@@ -164,7 +190,8 @@ export function CandidateProfile({
             <button className="qa" onClick={() => logContact("call", c.phone ? `tel:${c.phone}` : null)}><Icon name="user" size={13} /> Call</button>
             <button className="qa" onClick={() => logContact("email", c.email ? `mailto:${c.email}` : null)}><Icon name="message" size={13} /> Email</button>
             <button className="qa" onClick={() => logContact("whatsapp", c.phone ? `https://wa.me/${c.phone.replace(/\D/g, "")}` : null)}><Icon name="message" size={13} /> WhatsApp</button>
-            <button className="qa" onClick={scheduleScreening}><Icon name="calendar" size={13} /> Schedule</button>
+            <button className="qa" onClick={() => { setScheduleMsg(null); setSchedulePanel({}); }}><Icon name="calendar" size={13} /> Schedule</button>
+            <button className="qa" onClick={candidateLink}><Icon name="share" size={13} /> {candidateLinkMsg ?? "Candidate link"}</button>
             <button className="qa" onClick={confirmAvailability}><Icon name="check" size={13} /> Confirm availability</button>
             <button className="qa" onClick={archiveOrRestore}>{c.archived ? "Restore" : "Archive"}</button>
             <button className="qa" onClick={removeCandidate} style={{ color: "var(--bad)" }}><Icon name="x" size={13} /> Delete</button>
@@ -258,12 +285,18 @@ export function CandidateProfile({
           <div className="panel">
             <div className="panel-title" style={{ justifyContent: "space-between" }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}><Icon name="video" size={14} /> Interviews</span>
-              {scheduleMsg ? (
-                <span style={{ fontSize: 11, color: "var(--good)" }}>{scheduleMsg}</span>
-              ) : (
-                <button className="suggest-mini" onClick={scheduleScreening}><Icon name="calendar" size={12} /> Schedule screening</button>
-              )}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                {scheduleMsg && <span style={{ fontSize: 11, color: "var(--good)" }}>{scheduleMsg}</span>}
+                <button className="suggest-mini" onClick={() => { setScheduleMsg(null); setSchedulePanel({}); }}><Icon name="calendar" size={12} /> Schedule screening</button>
+              </span>
             </div>
+            {schedulePanel && (
+              <SchedulePanel
+                reschedule={Boolean(schedulePanel.rescheduleId)}
+                onCancel={() => setSchedulePanel(null)}
+                onSubmit={submitSchedule}
+              />
+            )}
             {data.interviews.length === 0 ? (
               <div style={{ fontSize: 13, color: "var(--mute)" }}>No interviews recorded yet.</div>
             ) : (
@@ -393,6 +426,133 @@ export function CandidateProfile({
             <div className="kvline"><span>Source</span><b>{c.source ?? "—"}</b></div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+const COMMON_TZ = ["UTC", "Europe/Kyiv", "Europe/London", "Europe/Berlin", "America/New_York", "America/Los_Angeles", "Asia/Dubai", "Asia/Singapore"];
+
+// Real scheduling panel (Mission 8 Phase 2): recruiter picks date + time +
+// timezone, optionally proposes multiple slots, and may paste a REAL meeting link.
+function SchedulePanel({
+  reschedule,
+  onCancel,
+  onSubmit,
+}: {
+  reschedule: boolean;
+  onCancel: () => void;
+  onSubmit: (opts: { scheduledFor?: string; proposedSlots?: string[]; timezone: string; durationMins: number; meetingUrl?: string }) => void;
+}) {
+  const guessTz = (() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    } catch {
+      return "UTC";
+    }
+  })();
+  const [mode, setMode] = useState<"fixed" | "propose">("fixed");
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("10:00");
+  const [timezone, setTimezone] = useState(COMMON_TZ.includes(guessTz) ? guessTz : "UTC");
+  const [durationMins, setDurationMins] = useState(45);
+  const [meetingUrl, setMeetingUrl] = useState("");
+  const [slots, setSlots] = useState<string[]>([]);
+  const [slotDate, setSlotDate] = useState("");
+  const [slotTime, setSlotTime] = useState("10:00");
+  const [busy, setBusy] = useState(false);
+
+  // Interpret the wall-clock date/time in the chosen timezone → a correct UTC ISO.
+  const toIso = (d: string, t: string): string | null => {
+    if (!d || !t) return null;
+    const naive = new Date(`${d}T${t}:00`);
+    if (Number.isNaN(naive.getTime())) return null;
+    try {
+      const asUtc = new Date(naive.toLocaleString("en-US", { timeZone: "UTC" }));
+      const inTz = new Date(naive.toLocaleString("en-US", { timeZone: timezone }));
+      const offset = asUtc.getTime() - inTz.getTime();
+      return new Date(naive.getTime() + offset).toISOString();
+    } catch {
+      return naive.toISOString();
+    }
+  };
+
+  const addSlot = () => {
+    const iso = toIso(slotDate, slotTime);
+    if (iso && !slots.includes(iso)) setSlots((s) => [...s, iso].slice(0, 5));
+  };
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const base = { timezone, durationMins, meetingUrl: meetingUrl.trim() || undefined };
+      if (reschedule || mode === "fixed") {
+        const iso = toIso(date, time);
+        if (!iso) {
+          setBusy(false);
+          return;
+        }
+        onSubmit({ ...base, scheduledFor: iso });
+      } else {
+        if (slots.length === 0) {
+          setBusy(false);
+          return;
+        }
+        onSubmit({ ...base, proposedSlots: slots });
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ border: "1px solid var(--line)", borderRadius: 12, padding: 12, margin: "8px 0", display: "grid", gap: 10 }}>
+      {!reschedule && (
+        <div className="view-filters">
+          <button className="chip" data-active={mode === "fixed" ? "" : undefined} onClick={() => setMode("fixed")}>Set a time</button>
+          <button className="chip" data-active={mode === "propose" ? "" : undefined} onClick={() => setMode("propose")}>Propose slots</button>
+        </div>
+      )}
+
+      {(reschedule || mode === "fixed") ? (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <input className="mc-in" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <input className="mc-in" type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ width: 120 }} />
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <input className="mc-in" type="date" value={slotDate} onChange={(e) => setSlotDate(e.target.value)} />
+            <input className="mc-in" type="time" value={slotTime} onChange={(e) => setSlotTime(e.target.value)} style={{ width: 120 }} />
+            <button className="btn btn-ghost" onClick={addSlot} disabled={!slotDate}>+ Add slot</button>
+          </div>
+          {slots.length > 0 && (
+            <div className="tag-row tag-row-sm">
+              {slots.map((s) => (
+                <span key={s} className="tag tag-sm">
+                  {new Date(s).toLocaleString()} <button onClick={() => setSlots((x) => x.filter((y) => y !== s))} style={{ marginLeft: 4 }}>×</button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <select className="mc-in" value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+          {COMMON_TZ.map((tz) => <option key={tz} value={tz}>{tz}</option>)}
+        </select>
+        <select className="mc-in" value={durationMins} onChange={(e) => setDurationMins(Number(e.target.value))}>
+          {[30, 45, 60, 90].map((m) => <option key={m} value={m}>{m} min</option>)}
+        </select>
+      </div>
+
+      <input className="mc-in" placeholder="Paste a real meeting link (Zoom/Meet) — optional" value={meetingUrl} onChange={(e) => setMeetingUrl(e.target.value)} />
+      {!meetingUrl.trim() && <div style={{ fontSize: 11.5, color: "var(--mute)" }}>No link pasted — the client sees “joining details will be shared before the call” (no fake links).</div>}
+
+      <div style={{ display: "flex", gap: 8 }}>
+        <button className="btn btn-primary" onClick={submit} disabled={busy}>{reschedule ? "Reschedule" : mode === "fixed" ? "Schedule" : "Propose slots"}</button>
+        <button className="btn btn-ghost" onClick={onCancel}>Cancel</button>
       </div>
     </div>
   );

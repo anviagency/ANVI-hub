@@ -7,6 +7,7 @@ import { analyzeCandidate } from "@/lib/matching/scoring";
 import { STAGE_LABEL } from "@/lib/pipeline";
 import { notify } from "@/lib/notify";
 import { getFreshAnalysis } from "@/lib/matching/cache";
+import { meetingsConfigured } from "@/lib/meetings/provider";
 import { applyClientDecision, type ClientDecision } from "@/lib/decisions";
 import type { PipelineStage } from "@prisma/client";
 import type { Risk, Strength } from "@/lib/types";
@@ -111,7 +112,20 @@ export interface ClientSafeCandidate {
   clientStatus: string; // pending/approved/rejected
   stage: string; // friendly pipeline stage label
   // Client-safe interview info (video + summary + action items + scheduled meeting; NEVER transcript).
-  interview: { recordingUrl: string | null; summary: string | null; actionItems: unknown; completedAt: Date | null; scheduledFor: Date | null; meetingUrl: string | null; status: string } | null;
+  // recordingUrl / meetingUrl are ONLY ever real links: a fake/unprovisioned link is
+  // suppressed and surfaced as a status flag instead (Mission 8 Phase 1 — no fake links).
+  interview: {
+    recordingUrl: string | null;
+    recordingPending: boolean;
+    summary: string | null;
+    actionItems: unknown;
+    completedAt: Date | null;
+    scheduledFor: Date | null;
+    proposedSlots: string[];
+    meetingUrl: string | null;
+    meetingPending: boolean;
+    status: string;
+  } | null;
 }
 
 /** Validate a token and project everything the client is allowed to see. */
@@ -191,9 +205,7 @@ export async function resolveShareLink(token: string): Promise<ResolvedShareLink
       sharedNotes,
       clientStatus: submission?.clientStatus ?? "pending",
       stage: STAGE_LABEL[(pipeline?.stage ?? "sent_to_client") as PipelineStage],
-      interview: interviewRow
-        ? { recordingUrl: interviewRow.recordingUrl, summary: interviewRow.summary, actionItems: interviewRow.actionItems, completedAt: interviewRow.completedAt, scheduledFor: interviewRow.scheduledFor, meetingUrl: interviewRow.meetingUrl, status: interviewRow.status }
-        : null,
+      interview: interviewRow ? projectClientInterview(interviewRow) : null,
     });
   }
 
@@ -203,6 +215,47 @@ export async function resolveShareLink(token: string): Promise<ResolvedShareLink
     job: { id: link.job.id, title: link.job.title, seniority: link.job.seniority },
     client: link.client ? { name: link.client.name, company: link.client.company } : null,
     candidates,
+  };
+}
+
+type InterviewRow = {
+  recordingUrl: string | null;
+  summary: string | null;
+  actionItems: unknown;
+  completedAt: Date | null;
+  scheduledFor: Date | null;
+  proposedSlots: unknown;
+  meetingUrl: string | null;
+  meetingProvisioned: boolean;
+  webhookStatus: string;
+  status: string;
+};
+
+/**
+ * Project an interview into the client-safe shape, enforcing the no-fake-link
+ * rule (Mission 8 Phase 1):
+ * - A recording link is shown ONLY when a real meeting-intelligence provider is
+ *   configured AND a recording exists; otherwise the client sees a "pending" flag.
+ * - A meeting/join link is shown ONLY when it is provisioned (recruiter-provided
+ *   or booked by a real provider); otherwise "pending".
+ */
+function projectClientInterview(iv: InterviewRow): ClientSafeCandidate["interview"] {
+  const recordingsLive = meetingsConfigured();
+  const screened = Boolean(iv.completedAt) || iv.status === "completed" || iv.webhookStatus === "summary_ready" || Boolean(iv.summary);
+  const recordingUrl = recordingsLive && iv.recordingUrl ? iv.recordingUrl : null;
+  const meetingUrl = iv.meetingProvisioned && iv.meetingUrl ? iv.meetingUrl : null;
+  const upcoming = iv.status !== "cancelled" && !iv.completedAt;
+  return {
+    recordingUrl,
+    recordingPending: screened && !recordingUrl,
+    summary: iv.summary,
+    actionItems: iv.actionItems,
+    completedAt: iv.completedAt,
+    scheduledFor: iv.scheduledFor,
+    proposedSlots: Array.isArray(iv.proposedSlots) ? (iv.proposedSlots as string[]) : [],
+    meetingUrl,
+    meetingPending: upcoming && Boolean(iv.scheduledFor) && !meetingUrl,
+    status: iv.status,
   };
 }
 

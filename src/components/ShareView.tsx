@@ -22,7 +22,18 @@ interface ClientCandidate {
   sharedNotes: { kind: string; body: string }[];
   clientStatus: string;
   stage: string;
-  interview: { recordingUrl: string | null; summary: string | null; actionItems: unknown; completedAt: string | null; scheduledFor: string | null; meetingUrl: string | null; status: string } | null;
+  interview: {
+    recordingUrl: string | null;
+    recordingPending: boolean;
+    summary: string | null;
+    actionItems: unknown;
+    completedAt: string | null;
+    scheduledFor: string | null;
+    proposedSlots: string[];
+    meetingUrl: string | null;
+    meetingPending: boolean;
+    status: string;
+  } | null;
 }
 
 interface ShareData {
@@ -67,6 +78,18 @@ export function ShareView({ token }: { token: string }) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ candidateId, scheduledFor: new Date(value).toISOString() }),
+    });
+    setPending(null);
+    load();
+  }
+
+  async function sendMessage(candidateId: string, body: string, kind: "question" | "reschedule_request") {
+    if (!body.trim()) return;
+    setPending(candidateId + "message");
+    await fetch(`/api/share/${token}/message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ candidateId, body, kind }),
     });
     setPending(null);
     load();
@@ -155,7 +178,7 @@ export function ShareView({ token }: { token: string }) {
               </div>
             )}
 
-            {c.interview && (c.interview.recordingUrl || c.interview.summary) && (
+            {c.interview && (c.interview.recordingUrl || c.interview.recordingPending || c.interview.summary) && (
               <div style={{ marginTop: 10, padding: 12, background: "var(--good-bg)", borderRadius: 12 }}>
                 <div className="sect-label" style={{ color: "var(--good)" }}><Icon name="video" size={13} /> Screening completed</div>
                 {c.interview.summary && <div style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 6 }}>{c.interview.summary}</div>}
@@ -164,11 +187,13 @@ export function ShareView({ token }: { token: string }) {
                     {(c.interview.actionItems as string[]).slice(0, 4).map((a, i) => <li key={i}>{a}</li>)}
                   </ul>
                 )}
-                {c.interview.recordingUrl && (
+                {c.interview.recordingUrl ? (
                   <a href={c.interview.recordingUrl} className="btn btn-good" target="_blank" rel="noreferrer" style={{ fontSize: 13 }}>
                     <Icon name="video" size={14} /> Watch recording
                   </a>
-                )}
+                ) : c.interview.recordingPending ? (
+                  <div style={{ fontSize: 12.5, color: "var(--mute)", fontStyle: "italic" }}>Recording not ready yet — we&apos;ll notify you when it&apos;s available.</div>
+                ) : null}
               </div>
             )}
 
@@ -184,7 +209,25 @@ export function ShareView({ token }: { token: string }) {
             {c.interview && c.interview.scheduledFor && c.interview.status !== "cancelled" && !c.interview.completedAt && (
               <div className="banner banner-info" style={{ marginTop: 10 }}>
                 <Icon name="calendar" size={13} /> Interview set for {new Date(c.interview.scheduledFor).toLocaleString()}
-                {c.interview.meetingUrl && <> · <a href={c.interview.meetingUrl} target="_blank" rel="noreferrer">join link</a></>}
+                {c.interview.meetingUrl ? (
+                  <> · <a href={c.interview.meetingUrl} target="_blank" rel="noreferrer">join link</a></>
+                ) : c.interview.meetingPending ? (
+                  <> · joining details will be shared before the call</>
+                ) : null}
+              </div>
+            )}
+
+            {/* Recruiter-proposed slots: the client picks one (Phase 2) */}
+            {c.interview && Array.isArray(c.interview.proposedSlots) && c.interview.proposedSlots.length > 0 && !c.interview.completedAt && c.interview.status !== "cancelled" && (
+              <div style={{ marginTop: 10 }}>
+                <div className="sect-label"><Icon name="calendar" size={13} /> Proposed interview times — pick one</div>
+                <div className="tag-row tag-row-sm">
+                  {c.interview.proposedSlots.map((s) => (
+                    <button key={s} className="chip" disabled={!!pending} onClick={() => pickTime(c.id, s)}>
+                      {new Date(s).toLocaleString()}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -195,13 +238,13 @@ export function ShareView({ token }: { token: string }) {
               <button className="btn btn-bad" disabled={!!pending} onClick={() => decide(c.id, "reject")}>
                 <Icon name="x" size={15} /> Pass
               </button>
-              {/* Client picks an interview time directly (P3 availability flow) */}
-              <label className="qa" style={{ gap: 5 }}>
-                <Icon name="calendar" size={14} /> Pick interview time
-                <input type="datetime-local" style={{ border: "none", outline: "none", background: "transparent", fontSize: 12 }}
-                  disabled={!!pending} onChange={(e) => pickTime(c.id, e.target.value)} />
-              </label>
+              <button className="btn btn-ghost" disabled={!!pending} onClick={() => decide(c.id, "request_interview")}>
+                <Icon name="calendar" size={15} /> Request interview
+              </button>
             </div>
+
+            {/* Phase 4: minimal free-text so the client never dead-ends */}
+            <ClientMessageBox candidateId={c.id} pending={!!pending} onSend={sendMessage} />
           </div>
         ))}
       </div>
@@ -214,4 +257,56 @@ function DecisionBadge({ status }: { status: string }) {
   if (status === "approved") return <Pill tone="good">Approved</Pill>;
   if (status === "rejected") return <Pill tone="bad">Passed</Pill>;
   return <Pill tone="default">Awaiting you</Pill>;
+}
+
+function ClientMessageBox({
+  candidateId,
+  pending,
+  onSend,
+}: {
+  candidateId: string;
+  pending: boolean;
+  onSend: (candidateId: string, body: string, kind: "question" | "reschedule_request") => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [sent, setSent] = useState(false);
+
+  if (sent) {
+    return <div style={{ marginTop: 10, fontSize: 12.5, color: "var(--good)" }}>✓ Sent to your recruiter — they&apos;ll be in touch.</div>;
+  }
+
+  if (!open) {
+    return (
+      <button className="qa" style={{ marginTop: 10 }} onClick={() => setOpen(true)}>
+        <Icon name="message" size={14} /> Ask a question or request another time
+      </button>
+    );
+  }
+
+  const submit = (kind: "question" | "reschedule_request") => {
+    if (!text.trim()) return;
+    onSend(candidateId, text.trim(), kind);
+    setSent(true);
+  };
+
+  return (
+    <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+      <textarea
+        className="mc-in"
+        style={{ minHeight: 64, resize: "vertical" }}
+        placeholder="Ask a question, or tell us a time that works better…"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <div style={{ display: "flex", gap: 8 }}>
+        <button className="btn btn-primary" disabled={pending || !text.trim()} onClick={() => submit("question")}>
+          <Icon name="message" size={14} /> Send question
+        </button>
+        <button className="btn btn-ghost" disabled={pending || !text.trim()} onClick={() => submit("reschedule_request")}>
+          <Icon name="calendar" size={14} /> Request another time
+        </button>
+      </div>
+    </div>
+  );
 }

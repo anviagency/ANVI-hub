@@ -138,11 +138,16 @@ describe("WhatsApp + TimeOS automation (DB)", () => {
     expect(result.status).toBe("duplicate");
   });
 
-  it("client portal shows the video + summary but NEVER the transcript", async () => {
+  it("client portal shows the summary but NEVER the transcript or a fake recording link", async () => {
     const link = await createShareLink({ jobId, candidates: [{ candidateId: candB }] });
     const view = await resolveShareLink(link.token);
     const c = view.candidates.find((x) => x.id === candB)!;
-    expect(c.interview?.recordingUrl).toBe("https://rec.example/zzwa-1");
+    // Mission 8 Phase 1: with no real meeting-intelligence provider configured the
+    // (mock) recording link is SUPPRESSED — the client sees a pending status, never
+    // a fake URL. The fake URL must not appear anywhere in the client payload.
+    expect(c.interview?.recordingUrl).toBeNull();
+    expect(c.interview?.recordingPending).toBe(true);
+    expect(JSON.stringify(view)).not.toContain("rec.example");
     expect(c.interview?.summary).toContain("Strong communicator");
     // The transcript must not be present anywhere in the client-safe payload.
     expect(JSON.stringify(view)).not.toContain("Full transcript text");

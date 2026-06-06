@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { enqueueWhatsApp } from "@/lib/whatsapp/messages";
+import { meetingsConfigured } from "@/lib/meetings/provider";
 
 // WhatsApp event map (Mission 4 Part 2). Each function builds the client-safe
 // body + interactive buttons for a lifecycle event and enqueues delivery.
@@ -53,10 +54,15 @@ export async function notifyScreeningCompleted(interviewId: string): Promise<str
   const analysis = await prisma.candidateAnalysis.findUnique({ where: { candidateId_jobId: { candidateId: c.id, jobId: interview.job.id } } });
   const rec = analysis ? analysis.recommendation : "possible";
 
+  // Only surface a recording link when a real provider produced it; never a mock.
+  const recordingLine = meetingsConfigured() && interview.recordingUrl
+    ? `Recording: ${interview.recordingUrl}`
+    : "Recording will be available shortly.";
+
   const body = [
     `✅ Screening completed for ${c.fullName}.`,
     `AI recommendation: ${rec === "strong" ? "Strong match" : rec === "weak" ? "Weak match" : "Possible match"}.`,
-    interview.recordingUrl ? `Recording: ${interview.recordingUrl}` : "",
+    recordingLine,
     interview.summary ? `\nSummary: ${interview.summary.slice(0, 200)}` : "",
   ].filter(Boolean).join("\n");
 

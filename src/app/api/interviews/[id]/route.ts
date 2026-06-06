@@ -12,7 +12,7 @@ const Reschedule = z.object({
   scheduledFor: z.string().datetime().optional(),
   timezone: z.string().optional(),
   durationMins: z.number().optional(),
-  meetingUrl: z.string().optional(),
+  meetingUrl: z.string().url().optional(),
   meetingProvider: z.enum(["google_meet", "zoom", "teams"]).optional(),
 });
 
@@ -29,7 +29,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const data: Record<string, unknown> = { ...parsed.data };
   const rescheduled = Boolean(parsed.data.scheduledFor);
   if (parsed.data.scheduledFor) data.scheduledFor = new Date(parsed.data.scheduledFor);
-  if (rescheduled) data.status = "rescheduled";
+  if (rescheduled) {
+    data.status = "rescheduled";
+    // A new time invalidates the candidate's prior confirmation — they re-confirm.
+    data.candidateStatus = "none";
+    data.candidateRespondedAt = null;
+  }
+  // A recruiter-pasted URL is a REAL link → mark it provisioned (Phase 1 honesty).
+  if (parsed.data.meetingUrl) data.meetingProvisioned = true;
 
   await prisma.interview.update({ where: { id }, data });
 

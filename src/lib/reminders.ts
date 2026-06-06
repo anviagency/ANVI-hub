@@ -10,13 +10,16 @@ const OFFSETS: { label: string; ms: number }[] = [
   { label: "10m", ms: 10 * 60 * 1000 },
 ];
 
-/** Enqueue interview reminders for the future offsets that haven't passed yet. */
+/** Enqueue interview reminders for the future offsets that haven't passed yet.
+ * Each reminder carries the target time it was scheduled against (`forTime`) so a
+ * later reschedule can invalidate stale reminders (handler skips a mismatch). */
 export async function scheduleInterviewReminders(interviewId: string, scheduledFor: Date, now: Date = new Date()): Promise<string[]> {
   const scheduled: string[] = [];
+  const forTime = scheduledFor.toISOString();
   for (const o of OFFSETS) {
     const runAt = new Date(scheduledFor.getTime() - o.ms);
     if (runAt.getTime() <= now.getTime()) continue; // offset already passed
-    await enqueue("interview_reminder", { interviewId, label: o.label }, { runAt });
+    await enqueue("interview_reminder", { interviewId, label: o.label, forTime }, { runAt });
     scheduled.push(o.label);
   }
   return scheduled;

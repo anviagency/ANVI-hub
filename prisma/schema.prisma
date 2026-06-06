@@ -32,6 +32,7 @@ model Client {
   placements  Placement[]
   offers      Offer[]
   shareLinks  ShareLink[]
+  clientMessages ClientMessage[]
   users       User[]
 
   @@map("client")
@@ -186,6 +187,8 @@ model Job {
   pipelines   Pipeline[]
   notes       Note[]
   shareLinks  ShareLink[]
+  candidateAccess CandidateAccess[]
+  clientMessages  ClientMessage[]
 
   @@index([clientId])
   @@map("job")
@@ -264,6 +267,8 @@ model Candidate {
   pipelines   Pipeline[]
   notes       Note[]
   shares      ShareLinkCandidate[]
+  accessLinks    CandidateAccess[]
+  clientMessages ClientMessage[]
   importBatch ImportBatch? @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
 
   @@index([availability])
@@ -356,12 +361,18 @@ enum EventType {
   offer_accepted
   offer_declined
   offer_withdrawn
+  availability_confirmed
+  availability_declined
+  candidate_confirmed_interview
+  candidate_reschedule_requested
+  client_message
 }
 
 enum Actor {
   recruiter
   system
   client
+  candidate
 }
 
 model CandidateEvent {
@@ -406,7 +417,18 @@ model Interview {
   durationMins     Int?      @map("duration_mins")
   meetingUrl       String?   @map("meeting_url")
   meetingProvider  String?   @map("meeting_provider") // google_meet | zoom | teams
-  // scheduled | rescheduled | cancelled | completed
+  // True only when the meeting URL is real: recruiter-provided or booked by a
+  // configured provider. Auto-shaped placeholder links are NEVER provisioned and
+  // are never shown to clients (Mission 8 Phase 1 — no fake links).
+  meetingProvisioned Boolean @default(false) @map("meeting_provisioned")
+  // Recruiter-proposed time options (ISO strings) the client/candidate picks from.
+  proposedSlots    Json      @default("[]") @map("proposed_slots")
+  // Candidate's own response to the invite (Mission 8 Phase 3).
+  // none | confirmed | declined | reschedule_requested
+  candidateStatus  String    @default("none") @map("candidate_status")
+  candidateMessage String?   @map("candidate_message")
+  candidateRespondedAt DateTime? @map("candidate_responded_at")
+  // proposed | scheduled | rescheduled | cancelled | completed
   status           String    @default("scheduled")
   cancelledAt      DateTime? @map("cancelled_at")
   cancelReason     String?   @map("cancel_reason")
@@ -523,6 +545,53 @@ model Placement {
   @@index([clientId])
   @@index([status])
   @@map("placement")
+}
+
+// ---------------------------------------------------------------------------
+// CANDIDATE MICRO-SURFACE (Mission 8 Phase 3) — a secure, tokenized link that
+// lets a candidate self-confirm availability and respond to an interview invite
+// with no login. Token-authorized only; rate-limited like share links.
+// ---------------------------------------------------------------------------
+model CandidateAccess {
+  id           String    @id @default(cuid())
+  token        String    @unique
+  candidateId  String    @map("candidate_id")
+  jobId        String?   @map("job_id")
+  expiresAt    DateTime? @map("expires_at")
+  lastViewedAt DateTime? @map("last_viewed_at")
+  createdById  String?   @map("created_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  job       Job?      @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@index([candidateId])
+  @@map("candidate_access")
+}
+
+// ---------------------------------------------------------------------------
+// CLIENT MESSAGES (Mission 8 Phase 4) — minimal client free-text so the workflow
+// never dead-ends ("ask a question" / "request another time"). NOT a full inbox:
+// each message surfaces as a recruiter notification + timeline event.
+// ---------------------------------------------------------------------------
+model ClientMessage {
+  id          String    @id @default(cuid())
+  clientId    String?   @map("client_id")
+  jobId       String    @map("job_id")
+  candidateId String?   @map("candidate_id")
+  kind        String    @default("question") // question | reschedule_request
+  body        String
+  via         String    @default("share_link") // share_link | whatsapp
+  resolvedAt  DateTime? @map("resolved_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  client    Client?    @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  job       Job        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  candidate Candidate? @relation(fields: [candidateId], references: [id], onDelete: SetNull)
+
+  @@index([jobId])
+  @@index([resolvedAt])
+  @@map("client_message")
 }
 
 // ---------------------------------------------------------------------------

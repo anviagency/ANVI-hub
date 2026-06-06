@@ -95,13 +95,23 @@ describe("CRUD + intake + scheduling (Mission 5.1)", () => {
     expect(ev.length).toBeGreaterThan(0);
   });
 
-  it("scheduling produces a real meeting link; reschedule + cancel work", async () => {
+  it("scheduling stores a recruiter-provided real link (no fake links); reschedule + cancel work", async () => {
     const cand = await (await createCandidate(authedReq("POST", "http://x/api/candidates", token, { mode: "manual", fullName: `${P} Sched`, totalYears: 6, skills: [{ name: "React", years: 6 }] }))).json();
     const when = new Date(Date.now() + 5 * 86400000).toISOString();
-    const res = await scheduleInterview(authedReq("POST", "http://x/api/interviews/schedule", token, { candidateId: cand.id, jobId, scheduledFor: when, meetingProvider: "google_meet" }));
+    // Mission 8 Phase 1: a recruiter-pasted URL is real → stored + provisioned.
+    const realUrl = "https://meet.google.com/abc-defg-hij";
+    const res = await scheduleInterview(authedReq("POST", "http://x/api/interviews/schedule", token, { candidateId: cand.id, jobId, scheduledFor: when, meetingProvider: "google_meet", meetingUrl: realUrl }));
     const json = await res.json();
-    expect(json.meetingUrl).toMatch(/meet\.google\.com/);
+    expect(json.meetingUrl).toBe(realUrl);
+    expect(json.meetingProvisioned).toBe(true);
     expect(json.reminders).toEqual(["24h", "1h", "10m"]);
+
+    // Without a provided URL and no configured provider, NO fake link is fabricated.
+    const cand2 = await (await createCandidate(authedReq("POST", "http://x/api/candidates", token, { mode: "manual", fullName: `${P} NoLink`, totalYears: 5, skills: [{ name: "React", years: 5 }] }))).json();
+    const res2 = await scheduleInterview(authedReq("POST", "http://x/api/interviews/schedule", token, { candidateId: cand2.id, jobId, scheduledFor: when }));
+    const json2 = await res2.json();
+    expect(json2.meetingUrl).toBeNull();
+    expect(json2.meetingProvisioned).toBe(false);
 
     // reschedule
     const newWhen = new Date(Date.now() + 8 * 86400000).toISOString();
