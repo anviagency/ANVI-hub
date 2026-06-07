@@ -25,7 +25,7 @@ export interface CandidateCard {
 export type ChatKind =
   | "job_preview" | "candidates" | "status" | "fallback"
   | "explain" | "availability" | "summary" | "comparison" | "submit_result" | "share_result" | "pending"
-  | "job_intake" | "job_created";
+  | "job_intake" | "job_created" | "confirm";
 
 export interface ChatResponse {
   intent: string;
@@ -69,7 +69,7 @@ async function send<T>(method: string, url: string, body?: unknown): Promise<T> 
 }
 
 export const api = {
-  chat: (message: string, context?: { jobId?: string; pendingJob?: unknown }) =>
+  chat: (message: string, context?: { jobId?: string; pendingJob?: unknown; pendingAction?: unknown }) =>
     postJson<ChatResponse>("/api/chat", { message, context }),
 
   resolveClient: (name: string) =>

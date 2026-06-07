@@ -602,6 +602,7 @@ export function ChatView({
   const [busy, setBusy] = useState(false);
   const currentJobId = useRef<string | null>(null);
   const pendingJob = useRef<unknown>(null); // conversational job-intake state
+  const pendingAction = useRef<unknown>(null); // sensitive action awaiting confirmation
   const lastUserText = useRef<string>("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -611,10 +612,12 @@ export function ChatView({
     setMsgs((m) => [...m, { role: "user", id: nextId(), text }]);
     setBusy(true);
     try {
-      const resp = await api.chat(text, { jobId: currentJobId.current ?? undefined, pendingJob: pendingJob.current ?? undefined });
+      const resp = await api.chat(text, { jobId: currentJobId.current ?? undefined, pendingJob: pendingJob.current ?? undefined, pendingAction: pendingAction.current ?? undefined });
       if (resp.data.jobId) currentJobId.current = resp.data.jobId as string;
       // Carry / clear the intake state across turns.
       pendingJob.current = resp.kind === "job_intake" ? (resp.data.pendingJob ?? null) : null;
+      // Carry / clear a sensitive action awaiting confirmation.
+      pendingAction.current = resp.kind === "confirm" ? (resp.data.pendingAction ?? null) : null;
       if (resp.kind === "job_created" && resp.data.jobId && onOpenWorkspace) {
         // Give the success message a beat, then open the new workspace.
         setTimeout(() => onOpenWorkspace(resp.data.jobId as string), 900);

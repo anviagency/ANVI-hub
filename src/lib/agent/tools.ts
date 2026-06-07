@@ -9,6 +9,8 @@ import {
   handlePending,
   handleSearchCandidates,
   handleMatchForJob,
+  handleSafest,
+  handleShortlist,
   type ChatResult,
 } from "@/lib/chat/copilot";
 
@@ -84,6 +86,18 @@ export const TOOLS: Tool[] = [
     params: z.object({ count: num, jobId: z.string().optional() }),
     sensitive: true,
     run: (a, ctx) => handleShare(ctx.message, (a.count as number) ?? 3, ctx.userId, (a.jobId as string) ?? ctx.jobId),
+  },
+  {
+    name: "safest_candidate",
+    description: "Identify the safest candidate for the role in focus (fewest anomalies, best availability, solid fit). Use for 'who is safest / lowest risk'.",
+    params: z.object({ jobId: z.string().optional() }),
+    run: (a, ctx) => handleSafest(ctx.message, (a.jobId as string) ?? ctx.jobId),
+  },
+  {
+    name: "build_shortlist",
+    description: "Build a shortlist of the top N candidates for the role in focus, ready to share or package.",
+    params: z.object({ count: num, jobId: z.string().optional() }),
+    run: (a, ctx) => handleShortlist(ctx.message, (a.count as number) ?? 5, (a.jobId as string) ?? ctx.jobId),
   },
   {
     name: "pending_actions",

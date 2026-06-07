@@ -11,7 +11,7 @@ import {
 } from "@/lib/chat/copilot";
 import { extractSkillsFromText } from "@/lib/ai/skills";
 import { runIntake, JobIntake } from "@/lib/chat/intake";
-import { runAgent, AGENT_ENABLED } from "@/lib/agent/orchestrator";
+import { runAgent, runConfirmedAction, isAffirmative, AGENT_ENABLED, type PendingAction } from "@/lib/agent/orchestrator";
 
 export const runtime = "nodejs";
 
@@ -21,6 +21,7 @@ const Body = z.object({
     .object({
       jobId: z.string().optional(),
       pendingJob: z.unknown().optional(),
+      pendingAction: z.unknown().optional(),
     })
     .optional(),
 });
@@ -43,6 +44,16 @@ export async function POST(req: NextRequest) {
   const pending = context?.pendingJob as JobIntake | undefined;
   if (pending && (pending.asking || pending.stage === "confirm_client" || pending.stage === "create_client")) {
     return NextResponse.json(await runIntake(message, pending, auth.user.id));
+  }
+
+  // A pending sensitive action awaiting confirmation: execute on a yes, else drop it.
+  const pendingAction = context?.pendingAction as PendingAction | undefined;
+  if (pendingAction?.tool) {
+    if (isAffirmative(message)) {
+      const done = await runConfirmedAction(pendingAction, { userId: auth.user.id, jobId, message });
+      if (done) return NextResponse.json(done);
+    }
+    // Not affirmative → fall through and treat as a fresh message (pending cleared client-side).
   }
 
   // AI-first decision layer (Mission 10). When enabled, the AI understands and

@@ -377,6 +377,43 @@ export async function handleMatchForJob(message: string, jobId?: string, entitie
   };
 }
 
+/** "Who is the safest candidate?" — rank finalists by fewest anomalies, then
+ * availability confidence, then fit. A recruiter-judgment composition. */
+export async function handleSafest(message: string, jobId?: string): Promise<ChatResult> {
+  const job = await resolveJob(message, jobId);
+  if (!job) return noJob("safest");
+  const results = await runMatch(job, { limit: 8 });
+  await persistAnalyses(job.id, results).catch(() => {});
+  const ranked = [...results].sort(
+    (a, b) =>
+      a.anomalies.length - b.anomalies.length ||
+      b.availability.score - a.availability.score ||
+      b.matchScore - a.matchScore
+  );
+  const list = ranked.map((r) => serializeMatch(r));
+  const top = ranked[0];
+  const reply = top
+    ? `Safest pick: ${top.candidate.fullName} — ${top.anomalies.length === 0 ? "no anomaly flags" : `${top.anomalies.length} flag(s)`}, availability ${top.availability.score}%, match ${top.matchScore}.`
+    : "No candidates to assess yet — run a match first.";
+  return { intent: "safest", thinking: ["Weighing anomalies, availability & fit…"], reply, kind: list.length ? "candidates" : "fallback", data: { jobId: job.id, jobTitle: job.title, list } };
+}
+
+/** "Build a shortlist" — the top N for the job in focus, ready to share/submit. */
+export async function handleShortlist(message: string, count: number, jobId?: string): Promise<ChatResult> {
+  const job = await resolveJob(message, jobId);
+  if (!job) return noJob("shortlist");
+  const results = await runMatch(job, { limit: Math.min(count || 5, 10) });
+  await persistAnalyses(job.id, results).catch(() => {});
+  const list = results.map((r) => serializeMatch(r));
+  return {
+    intent: "shortlist",
+    thinking: ["Assembling the strongest shortlist…"],
+    reply: list.length ? `Here's a shortlist of ${list.length} for ${job.title}. I can share these with the client or generate a package.` : "No candidates yet — run a match first.",
+    kind: list.length ? "candidates" : "fallback",
+    data: { jobId: job.id, jobTitle: job.title, list },
+  };
+}
+
 export async function handlePending(): Promise<ChatResult> {
   const items: { type: string; label: string; candidateId?: string; jobId?: string; action: string }[] = [];
 

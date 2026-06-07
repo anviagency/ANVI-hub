@@ -14,10 +14,23 @@ export interface AgentPlan {
   tool?: string | null;
   args?: Record<string, unknown>;
   ask?: string | null;
+  confirm?: string | null;
   followup?: string | null;
 }
 
-export const AGENT_ENABLED = () => process.env.AI_AGENT?.trim() === "1";
+export interface PendingAction {
+  tool: string;
+  args: Record<string, unknown>;
+}
+
+// AI-first by default whenever an AI provider is configured. AI_AGENT=0 is an
+// explicit kill switch back to the deterministic router; AI_AGENT=1 forces it on.
+export const AGENT_ENABLED = () => process.env.AI_AGENT === "1" || (aiEnabled && process.env.AI_AGENT !== "0");
+
+const AFFIRMATIVE = /^(y|yes|yep|yeah|sure|ok|okay|confirm|go ahead|do it|send|share|proceed|כן|בצע|שלח|אישור)\b/i;
+export function isAffirmative(message: string): boolean {
+  return AFFIRMATIVE.test(message.trim());
+}
 
 function systemPrompt(): string {
   const tools = toolCatalog()
@@ -57,6 +70,15 @@ export interface AgentOutcome {
   needsConfirm?: boolean;
 }
 
+/** Execute a previously-confirmed sensitive action. */
+export async function runConfirmedAction(pending: PendingAction, ctx: ToolContext): Promise<ChatResult | null> {
+  const tool = TOOL_BY_NAME.get(pending.tool);
+  if (!tool) return null;
+  const parsed = tool.params.safeParse(pending.args ?? {});
+  const args = parsed.success ? (parsed.data as Record<string, unknown>) : {};
+  return tool.run(args, ctx);
+}
+
 /**
  * Run one agent turn. Returns null to signal "fall back to the deterministic
  * router" (AI off, no plan, or a plan the deterministic path handles better).
@@ -87,9 +109,26 @@ export async function runAgent(message: string, ctx: ToolContext): Promise<Agent
     if (!tool) return null; // unknown tool → deterministic fallback
     const parsed = tool.params.safeParse(plan.args ?? {});
     const args = parsed.success ? (parsed.data as Record<string, unknown>) : {};
+
+    // Sensitive tools (submit / share — client-facing, irreversible) are NOT
+    // executed immediately: ask for a one-tap confirm and carry the action.
+    if (tool.sensitive) {
+      const pendingAction: PendingAction = { tool: tool.name, args };
+      return {
+        result: {
+          intent: "confirm",
+          thinking: plan.reasoning ? [plan.reasoning] : [],
+          reply: plan.confirm ?? `I'm ready to ${tool.description.toLowerCase()} Confirm and I'll do it.`,
+          kind: "confirm",
+          data: { pendingAction },
+        },
+        needsConfirm: true,
+      };
+    }
+
     const result = await tool.run(args, ctx);
     const withFollowup = plan.followup ? { ...result, reply: `${result.reply}\n\n${plan.followup}` } : result;
-    return { result: withFollowup, needsConfirm: tool.sensitive };
+    return { result: withFollowup };
   }
 
   return null;

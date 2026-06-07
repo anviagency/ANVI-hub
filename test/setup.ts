@@ -22,6 +22,14 @@ try {
   // .env optional; CI may provide DATABASE_URL directly.
 }
 
+// Hermetic AI: tests must NEVER call a real provider (slow, costly, non-deterministic).
+// They exercise the deterministic engine; AI behavior is covered by mocked tests.
+// This mirrors CI (no provider keys) regardless of what a local .env contains.
+delete process.env.GEMINI_API_KEY;
+delete process.env.GOOGLE_API_KEY;
+delete process.env.ANTHROPIC_API_KEY;
+process.env.AI_AGENT = "0";
+
 // Auto-cleanup the DOM after each component test (jsdom env only).
 afterEach(async () => {
   if (typeof document !== "undefined") {

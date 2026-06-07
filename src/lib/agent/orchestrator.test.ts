@@ -9,7 +9,7 @@ vi.mock("@/lib/ai/anthropic", () => ({
 
 // Mock the handlers so tools don't touch the DB — each returns a sentinel result.
 vi.mock("@/lib/chat/copilot", () => {
-  const make = (intent: string) => async () => ({ intent, thinking: [], reply: `ran ${intent}`, kind: "candidates", data: {} });
+  const make = (intent: string) => vi.fn(async () => ({ intent, thinking: [], reply: `ran ${intent}`, kind: "candidates", data: {} }));
   return {
     handleExplain: make("explain"),
     handleAvailability: make("availability"),
@@ -23,9 +23,9 @@ vi.mock("@/lib/chat/copilot", () => {
   };
 });
 
-import { runAgent } from "./orchestrator";
+import { runAgent, runConfirmedAction } from "./orchestrator";
 import { completeJson } from "@/lib/ai/anthropic";
-import { handleSearchCandidates } from "@/lib/chat/copilot";
+import { handleSearchCandidates, handleSubmit } from "@/lib/chat/copilot";
 
 const ctx = { userId: "u1", message: "hi" };
 const mockPlan = (plan: unknown) => (completeJson as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(plan);
@@ -61,10 +61,19 @@ describe("agent orchestrator", () => {
     expect(out?.result.data.awaitingInput).toBe(true);
   });
 
-  it("flags sensitive tools as needing confirmation", async () => {
-    mockPlan({ action: "tool", tool: "submit_candidates", args: { count: 3 } });
+  it("asks to confirm sensitive tools WITHOUT executing them", async () => {
+    mockPlan({ action: "tool", tool: "submit_candidates", args: { count: 3 }, confirm: "Submit top 3 to the client?" });
     const out = await runAgent("send the top 3", ctx);
     expect(out?.needsConfirm).toBe(true);
+    expect(out?.result.kind).toBe("confirm");
+    expect((out?.result.data as { pendingAction?: { tool: string } }).pendingAction?.tool).toBe("submit_candidates");
+    expect(handleSubmit).not.toHaveBeenCalled(); // not executed until confirmed
+  });
+
+  it("executes a confirmed sensitive action", async () => {
+    const done = await runConfirmedAction({ tool: "submit_candidates", args: { count: 3 } }, ctx);
+    expect(done?.intent).toBe("submit");
+    expect(handleSubmit).toHaveBeenCalledOnce();
   });
 
   it("hands job creation back to the intake state machine (returns null)", async () => {
