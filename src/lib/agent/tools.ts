@@ -12,6 +12,7 @@ import {
   handleSafest,
   handleShortlist,
   handleSimilar,
+  handleClientPackage,
   type ChatResult,
 } from "@/lib/chat/copilot";
 
@@ -105,6 +106,13 @@ export const TOOLS: Tool[] = [
     description: "Build a shortlist of the top N candidates for the role in focus, ready to share or package.",
     params: z.object({ count: num, jobId: z.string().optional() }),
     run: (a, ctx) => handleShortlist(ctx.message, (a.count as number) ?? 5, (a.jobId as string) ?? ctx.jobId),
+  },
+  {
+    name: "client_package",
+    description: "Generate an anonymized, branded, shareable candidate package for the client (no contact details). Use for 'create a package for the client'.",
+    params: z.object({ jobId: z.string().optional() }),
+    sensitive: true,
+    run: (a, ctx) => handleClientPackage(ctx.message, ctx.userId, (a.jobId as string) ?? ctx.jobId),
   },
   {
     name: "pending_actions",

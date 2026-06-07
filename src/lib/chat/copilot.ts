@@ -9,6 +9,7 @@ import { createShareLink } from "@/lib/share";
 import { audit } from "@/lib/auth/audit";
 import { extractSkillsFromText, canonicalizeSkill } from "@/lib/ai/skills";
 import { similarToCandidate, similarToLastHire, type SimilarResult } from "@/lib/matching/similarity";
+import { createClientPackage } from "@/lib/package/build";
 import type { Prisma } from "@prisma/client";
 
 // Recruiter Copilot brain (Mission 5.2). Each handler turns intent + message into
@@ -456,6 +457,40 @@ export async function handleSimilar(message: string, jobId?: string): Promise<Ch
     reply: list.length ? `Candidates similar to ${refLabel}${mods ? ` — ${mods}` : ""}: ${list.length} found.` : `No similar candidates${mods ? ` (${mods})` : ""} found for ${refLabel}.`,
     kind: list.length ? "candidates" : "fallback",
     data: { list, reference: result.reference },
+  };
+}
+
+/**
+ * "Create a client package" (Mission 10 Phase 6) — composes an anonymized,
+ * branded, shareable candidate package for the role in focus. Uses named
+ * candidates, else those already submitted, else the top matches.
+ */
+export async function handleClientPackage(message: string, userId: string, jobId?: string): Promise<ChatResult> {
+  const job = await resolveJob(message, jobId);
+  if (!job) return noJob("client_package");
+
+  const named = await findCandidatesInMessage(message);
+  let ids: string[];
+  if (named.length) {
+    ids = named.map((n) => n.id);
+  } else {
+    const subs = await prisma.submission.findMany({ where: { jobId: job.id }, orderBy: { submittedAt: "desc" }, take: 6 });
+    if (subs.length) ids = subs.map((s) => s.candidateId);
+    else {
+      const top = await getTopForJob(job, 4);
+      ids = top.map((t) => t.candidate.id);
+    }
+  }
+
+  const pkg = await createClientPackage({ jobId: job.id, candidateIds: ids, createdBy: userId });
+  if (!pkg) return { intent: "client_package", thinking: [], kind: "fallback", data: {}, reply: "I couldn't find candidates to package yet — run a match or submit some first." };
+  await audit({ userId, action: "client_package_created", entity: "client_package", entityId: pkg.token, meta: { jobId: job.id, count: pkg.count } });
+  return {
+    intent: "client_package",
+    thinking: ["Composing the client package…", "Anonymizing contact details…", "Applying branding…"],
+    reply: `Client package ready with ${pkg.count} candidate${pkg.count === 1 ? "" : "s"} for ${job.title}. It's anonymized (no contact details) and branded — share this link with the client.`,
+    kind: "share_result",
+    data: { url: pkg.url, token: pkg.token, candidates: pkg.count },
   };
 }
 

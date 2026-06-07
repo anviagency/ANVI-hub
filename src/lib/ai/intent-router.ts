@@ -11,6 +11,7 @@ const VALID_INTENTS: Intent[] = [
   "attach_client",
   "match_candidates",
   "search_candidates",
+  "client_package",
   "compare",
   "find_similar",
   "availability",
@@ -49,6 +50,11 @@ export function routeIntentDeterministic(text: string): RoutedIntent | null {
   // explain the matches / recommendations
   if (/\b(explain|why (these|them|that|this|did)|reason|justify|break ?down)\b/.test(t) && !/\bcompare\b/.test(t)) {
     return { intent: "explain", entities, source: "deterministic" };
+  }
+
+  // client package / presentation generation (before share/match)
+  if (/\b(package|presentation|one[\s-]?pager|deck)\b/.test(t) || /\b(generate|create|build|make|prepare)\b.*\bpackage\b/.test(t)) {
+    return { intent: "client_package", entities, source: "deterministic" };
   }
 
   // share / create a client link (must come before submit; both can say "with Andy")
@@ -122,6 +128,7 @@ const SYSTEM_PROMPT = `Classify the recruiter message into exactly one intent an
 Intents:
 - match_candidates: rank the best candidates for the CURRENT / most-recent open JOB.
 - search_candidates: find candidates in the DATABASE by ATTRIBUTES (skills, years of experience, country, English level), NOT tied to a specific job. Examples: "find candidates with 7 years Python", "who knows React", "מצא מועמדים עם 7 שנות ניסיון בפייתון", "אנשים עם ניסיון ב-AWS".
+- client_package: generate an anonymized, branded candidate package/presentation for a client ("create a package for Andy").
 - create_job, attach_client, compare, find_similar, availability, submit, share, explain, summarize, followup, status, smalltalk.
 Use search_candidates when the message describes desired candidate attributes WITHOUT referring to a specific open role.
 Return ONLY JSON: {"intent": "<one intent>", "entities": {"names": [string], "count": number, "client": string, "skills": [string], "min_years": number, "country": string, "english_level": string}}

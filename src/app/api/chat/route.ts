@@ -7,7 +7,7 @@ import { runMatch, persistAnalyses } from "@/lib/matching/funnel";
 import { aiEnabled } from "@/lib/ai/anthropic";
 import { authorizeMutation, RECRUITER_ROLES } from "@/lib/auth/guard";
 import {
-  handleExplain, handleAvailability, handleSummarize, handleCompare, handleSubmit, handleShare, handlePending, handleSearchCandidates, handleSimilar,
+  handleExplain, handleAvailability, handleSummarize, handleCompare, handleSubmit, handleShare, handlePending, handleSearchCandidates, handleSimilar, handleClientPackage,
 } from "@/lib/chat/copilot";
 import { extractSkillsFromText } from "@/lib/ai/skills";
 import { runIntake, JobIntake } from "@/lib/chat/intake";
@@ -80,6 +80,8 @@ export async function POST(req: NextRequest) {
     case "find_similar":
       // First-class candidate similarity — never silently a job match (Phase 5).
       return NextResponse.json(await handleSimilar(message, jobId));
+    case "client_package":
+      return NextResponse.json(await handleClientPackage(message, auth.user.id, jobId));
     case "match_candidates":
       // No job in focus + the query names concrete skills → it's a pool search,
       // not a job match (e.g. "find candidates with 7 years Python"). Don't

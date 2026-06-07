@@ -27,6 +27,7 @@ export type Intent =
   | "attach_client"
   | "match_candidates"
   | "search_candidates"
+  | "client_package"
   | "compare"
   | "find_similar"
   | "availability"

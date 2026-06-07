@@ -212,6 +212,7 @@ model Job {
   shareLinks  ShareLink[]
   candidateAccess CandidateAccess[]
   clientMessages  ClientMessage[]
+  clientPackages  ClientPackage[]
 
   @@index([clientId])
   @@map("job")
@@ -655,6 +656,41 @@ model Placement {
   @@index([clientId])
   @@index([status])
   @@map("placement")
+}
+
+// ---------------------------------------------------------------------------
+// CLIENT PACKAGE (Mission 10 Phase 6) — a generated, anonymized, branded, shareable
+// candidate package for a client. Items snapshot ONLY client-safe data (no phone,
+// email, LinkedIn, cost, internal notes, or transcript).
+// ---------------------------------------------------------------------------
+model ClientPackage {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  jobId     String   @map("job_id")
+  clientId  String?  @map("client_id")
+  title     String?
+  branding  Json     @default("{}") // {agencyName, logoUrl, color}
+  status    String   @default("ready")
+  createdBy String?  @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  job   Job                 @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  items ClientPackageItem[]
+
+  @@index([jobId])
+  @@map("client_package")
+}
+
+model ClientPackageItem {
+  id          String @id @default(cuid())
+  packageId   String @map("package_id")
+  candidateId String @map("candidate_id")
+  position    Int    @default(0)
+  data        Json   @default("{}") // anonymized client-safe snapshot
+
+  package ClientPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@map("client_package_item")
 }
 
 // ---------------------------------------------------------------------------
