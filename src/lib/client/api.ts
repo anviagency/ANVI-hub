@@ -251,6 +251,18 @@ export interface PlacementItem {
   offerId?: string | null;
 }
 
+export interface CandidateIntelligenceView {
+  source: string;
+  confidence: number | null;
+  languages: unknown[]; frameworks: unknown[]; databases: unknown[]; cloudProviders: unknown[]; devopsTools: unknown[]; aimlTools: unknown[]; architectureExp: unknown[];
+  industries: unknown[]; domains: unknown[]; companySizes: unknown[]; startupExp: boolean; enterpriseExp: boolean; consultingExp: boolean;
+  teamLeadership: boolean; managementYears: number | null; hiringExp: boolean; mentoringExp: boolean; maxTeamSize: number | null;
+  spokenLanguages: unknown[]; writtenLanguages: unknown[]; englishConfidence: number | null; communicationConfidence: number | null;
+  city: string | null; timezone: string | null; relocationWilling: boolean | null; remoteExperience: boolean;
+  avgTenureMonths: number | null; stabilityScore: number | null; jobHopping: boolean;
+  education: unknown[]; certifications: unknown[]; militaryExp: boolean;
+}
+
 export interface StabilityResult {
   score: number | null;
   band: "stable" | "moderate" | "job_hopper" | "insufficient";
@@ -444,6 +456,7 @@ export interface CandidateDetail {
   anomalies: Anomaly[];
   stability?: StabilityResult;
   notableEmployers?: { company: string; matched: string }[];
+  intelligence?: CandidateIntelligenceView | null;
   freshness?: FreshnessResult;
   availabilityScore?: { score: number; band: string; reasons: string[] };
   communicationHealth?: { band: "green" | "yellow" | "red"; daysSinceContact: number | null };

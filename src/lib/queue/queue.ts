@@ -10,7 +10,8 @@ export type JobType =
   | "analyze_job"
   | "wa_send"
   | "interview_reminder"
-  | "pending_feedback_reminder";
+  | "pending_feedback_reminder"
+  | "extract_candidate_intelligence";
 
 export interface ClaimedJob {
   id: string;

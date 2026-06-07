@@ -71,6 +71,15 @@ export const handlers: Handlers = {
     return { waMessageId: waId, email };
   },
 
+  // Candidate Intelligence extraction (Mission 10 Phase 2) — off-request so the
+  // (AI) extraction never blocks intake. Idempotent upsert.
+  extract_candidate_intelligence: async (payload) => {
+    const { upsertCandidateIntelligence } = await import("@/lib/ai/candidate-intelligence");
+    const candidateId = String(payload.candidateId);
+    const ok = await upsertCandidateIntelligence(candidateId);
+    return { candidateId, ok };
+  },
+
   // Pending-feedback reminder for a client/job.
   pending_feedback_reminder: async (payload) => {
     const waId = await notifyPendingFeedback(String(payload.clientId), String(payload.jobId));

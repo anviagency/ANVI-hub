@@ -85,6 +85,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       notes: { where: { deletedAt: null }, orderBy: { createdAt: "desc" } },
       pipelines: { include: { job: { include: { client: true } } } },
       interviews: { orderBy: { scheduledFor: "desc" } },
+      intelligence: true,
     },
   });
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -163,6 +164,22 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     // employers. Cheap, deterministic, derived from employment history.
     stability: scoreStability(input, currentYear),
     notableEmployers: detectNotableEmployers(input),
+    // Structured Candidate Intelligence (Mission 10 Phase 2) — null until built.
+    intelligence: row.intelligence
+      ? {
+          source: row.intelligence.source, confidence: row.intelligence.confidence,
+          languages: row.intelligence.languages, frameworks: row.intelligence.frameworks, databases: row.intelligence.databases,
+          cloudProviders: row.intelligence.cloudProviders, devopsTools: row.intelligence.devopsTools, aimlTools: row.intelligence.aimlTools,
+          architectureExp: row.intelligence.architectureExp,
+          industries: row.intelligence.industries, domains: row.intelligence.domains, companySizes: row.intelligence.companySizes,
+          startupExp: row.intelligence.startupExp, enterpriseExp: row.intelligence.enterpriseExp, consultingExp: row.intelligence.consultingExp,
+          teamLeadership: row.intelligence.teamLeadership, managementYears: row.intelligence.managementYears, hiringExp: row.intelligence.hiringExp, mentoringExp: row.intelligence.mentoringExp, maxTeamSize: row.intelligence.maxTeamSize,
+          spokenLanguages: row.intelligence.spokenLanguages, writtenLanguages: row.intelligence.writtenLanguages, englishConfidence: row.intelligence.englishConfidence, communicationConfidence: row.intelligence.communicationConfidence,
+          city: row.intelligence.city, timezone: row.intelligence.timezone, relocationWilling: row.intelligence.relocationWilling, remoteExperience: row.intelligence.remoteExperience,
+          avgTenureMonths: row.intelligence.avgTenureMonths, stabilityScore: row.intelligence.stabilityScore, jobHopping: row.intelligence.jobHopping,
+          education: row.intelligence.education, certifications: row.intelligence.certifications, militaryExp: row.intelligence.militaryExp,
+        }
+      : null,
     // Freshness is job-independent and always available.
     freshness: scoreFreshness(input),
     // Availability confidence (Mission 5.1 P5) + communication health (P4).

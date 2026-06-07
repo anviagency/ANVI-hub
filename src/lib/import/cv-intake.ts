@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { parseCv } from "@/lib/ai/cv-parser";
 import { dedupeKeyFor } from "@/lib/import/ingest";
 import { recordChange } from "@/lib/crud";
+import { enqueue } from "@/lib/queue/queue";
 
 export interface CvIntakeResult {
   id?: string;
@@ -87,6 +88,9 @@ export async function createCandidateFromCv(
     eventType: "created", userId: opts.userId, ip: opts.ip ?? undefined,
     meta: { mode: opts.mode ?? "cv", source: candidate.source, nameConfidence: cv.nameConfidence, warnings: cv.warnings },
   });
+
+  // Build the Candidate Intelligence object off-request (Mission 10 Phase 2).
+  await enqueue("extract_candidate_intelligence", { candidateId: candidate.id }).catch(() => {});
 
   return { id: candidate.id, name: candidate.fullName, skills: skillRows.length, nameConfidence: cv.nameConfidence, warnings: cv.warnings };
 }

@@ -299,6 +299,9 @@ export function CandidateProfile({
             </div>
           </div>
 
+          {/* Candidate Intelligence (Mission 10 Phase 2) */}
+          {data.intelligence && <IntelligencePanel intel={data.intelligence} />}
+
           {/* Strengths / Risks */}
           {a && (a.strengths.length > 0 || a.risks.length > 0) && (
             <div className="panel">
@@ -501,6 +504,53 @@ export function CandidateProfile({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function names(arr: unknown[]): string[] {
+  return (arr ?? []).map((x) => (typeof x === "string" ? x : (x as { name?: string; lang?: string })?.name ?? (x as { lang?: string })?.lang ?? "")).filter(Boolean);
+}
+
+function IntelligencePanel({ intel }: { intel: import("@/lib/client/api").CandidateIntelligenceView }) {
+  const row = (label: string, vals: string[]) => (vals.length ? (
+    <div className="kvline" style={{ alignItems: "flex-start" }}>
+      <span>{label}</span>
+      <div className="tag-row tag-row-sm" style={{ justifyContent: "flex-end" }}>{vals.slice(0, 10).map((v) => <span key={v} className="tag tag-sm">{v}</span>)}</div>
+    </div>
+  ) : null);
+  const flags: string[] = [];
+  if (intel.startupExp) flags.push("startup");
+  if (intel.enterpriseExp) flags.push("enterprise");
+  if (intel.consultingExp) flags.push("consulting");
+  if (intel.teamLeadership) flags.push("leadership");
+  if (intel.hiringExp) flags.push("hiring");
+  if (intel.mentoringExp) flags.push("mentoring");
+  if (intel.remoteExperience) flags.push("remote");
+  if (intel.militaryExp) flags.push("military");
+  return (
+    <div className="panel">
+      <div className="panel-title" style={{ justifyContent: "space-between" }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}><Icon name="spark" size={14} /> Candidate intelligence</span>
+        <span style={{ fontSize: 11, color: "var(--mute)" }}>{intel.source}{intel.confidence != null ? ` · ${intel.confidence}% conf` : ""}</span>
+      </div>
+      {row("Languages", names(intel.languages))}
+      {row("Frameworks", names(intel.frameworks))}
+      {row("Databases", names(intel.databases))}
+      {row("Cloud", names(intel.cloudProviders))}
+      {row("DevOps", names(intel.devopsTools))}
+      {row("AI/ML", names(intel.aimlTools))}
+      {row("Architecture", names(intel.architectureExp))}
+      {row("Industries", names(intel.industries))}
+      {row("Company sizes", names(intel.companySizes))}
+      {flags.length > 0 && row("Experience", flags)}
+      {intel.managementYears != null && <div className="kvline"><span>Management</span><b>{intel.managementYears}y{intel.maxTeamSize ? ` · team ${intel.maxTeamSize}` : ""}</b></div>}
+      {(intel.city || intel.timezone) && <div className="kvline"><span>Location</span><b>{[intel.city, intel.timezone].filter(Boolean).join(" · ")}</b></div>}
+      {intel.relocationWilling != null && <div className="kvline"><span>Relocation</span><b>{intel.relocationWilling ? "willing" : "no"}</b></div>}
+      {intel.englishConfidence != null && <div className="kvline"><span>English confidence</span><b>{intel.englishConfidence}%</b></div>}
+      {row("Certifications", names(intel.certifications))}
+      {names(intel.education).length > 0 && row("Education", names(intel.education).concat((intel.education as { degree?: string; field?: string }[]).map((e) => [e.degree, e.field].filter(Boolean).join(" ")).filter(Boolean)).slice(0, 4))}
+      {intel.source === "deterministic" && <div style={{ fontSize: 11.5, color: "var(--mute)", marginTop: 6 }}>Deterministic only — enable AI + re-import for full extraction.</div>}
     </div>
   );
 }

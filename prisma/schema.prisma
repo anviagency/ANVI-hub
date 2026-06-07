@@ -256,9 +256,10 @@ model Candidate {
   dedupeKey         String?      @unique @map("dedupe_key")
   importBatchId     String?      @map("import_batch_id")
 
-  skills      CandidateSkill[]
-  employments Employment[]
-  analyses    CandidateAnalysis[]
+  skills       CandidateSkill[]
+  intelligence CandidateIntelligence?
+  employments  Employment[]
+  analyses     CandidateAnalysis[]
   events      CandidateEvent[]
   interviews  Interview[]
   submissions Submission[]
@@ -275,6 +276,67 @@ model Candidate {
   @@index([updatedAt])
   @@index([country])
   @@map("candidate")
+}
+
+// ---------------------------------------------------------------------------
+// CANDIDATE INTELLIGENCE (Mission 10 Phase 2) — a structured intelligence object
+// inferred from the CV (AI-primary, deterministic fallback). Layered ON TOP of
+// the factual skills/employments; never replaces them. JSON arrays hold typed
+// lists; scalars are kept for fast filtering. `confidence`/`raw` for provenance.
+// ---------------------------------------------------------------------------
+model CandidateIntelligence {
+  candidateId String   @id @map("candidate_id")
+  // Technical
+  languages       Json @default("[]")
+  frameworks      Json @default("[]")
+  databases       Json @default("[]")
+  cloudProviders  Json @default("[]") @map("cloud_providers")
+  devopsTools     Json @default("[]") @map("devops_tools")
+  aimlTools       Json @default("[]") @map("aiml_tools")
+  architectureExp Json @default("[]") @map("architecture_exp")
+  // Business
+  industries    Json    @default("[]")
+  domains       Json    @default("[]")
+  companySizes  Json    @default("[]") @map("company_sizes")
+  startupExp    Boolean @default(false) @map("startup_exp")
+  enterpriseExp Boolean @default(false) @map("enterprise_exp")
+  consultingExp Boolean @default(false) @map("consulting_exp")
+  // Leadership
+  teamLeadership  Boolean @default(false) @map("team_leadership")
+  managementYears Float?  @map("management_years")
+  hiringExp       Boolean @default(false) @map("hiring_exp")
+  mentoringExp    Boolean @default(false) @map("mentoring_exp")
+  maxTeamSize     Int?    @map("max_team_size")
+  // Communication
+  spokenLanguages         Json @default("[]") @map("spoken_languages")
+  writtenLanguages        Json @default("[]") @map("written_languages")
+  englishConfidence       Int? @map("english_confidence")
+  communicationConfidence Int? @map("communication_confidence")
+  // Geography
+  city              String?
+  timezone          String?
+  relocationWilling Boolean? @map("relocation_willing")
+  remoteExperience  Boolean  @default(false) @map("remote_experience")
+  // Employment
+  avgTenureMonths Int?     @map("avg_tenure_months")
+  stabilityScore  Int?     @map("stability_score")
+  jobHopping      Boolean  @default(false) @map("job_hopping")
+  employmentGaps  Json     @default("[]") @map("employment_gaps")
+  // Education
+  education      Json    @default("[]")
+  certifications Json    @default("[]")
+  militaryExp    Boolean @default(false) @map("military_exp")
+  // Provenance
+  modelVersion String?  @map("model_version")
+  confidence   Int?
+  source       String   @default("deterministic") // ai | deterministic | hybrid
+  raw          Json     @default("{}")
+  generatedAt  DateTime @default(now()) @map("generated_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@map("candidate_intelligence")
 }
 
 model CandidateSkill {
