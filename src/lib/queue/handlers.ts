@@ -88,6 +88,14 @@ export const handlers: Handlers = {
     return { jobId, ok };
   },
 
+  // Client Memory recompute (Mission 10 Phase 4) — learn preferences after a decision.
+  recompute_client_insight: async (payload) => {
+    const { recomputeClientInsight } = await import("@/lib/matching/client-memory");
+    const clientId = String(payload.clientId);
+    const ok = await recomputeClientInsight(clientId);
+    return { clientId, ok };
+  },
+
   // Pending-feedback reminder for a client/job.
   pending_feedback_reminder: async (payload) => {
     const waId = await notifyPendingFeedback(String(payload.clientId), String(payload.jobId));

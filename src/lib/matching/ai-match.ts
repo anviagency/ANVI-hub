@@ -1,6 +1,8 @@
 import { completeJson, aiEnabled, MODEL_FAST } from "@/lib/ai/anthropic";
 import type { CandidateInput, JobRequirement, CandidateAnalysisResult } from "@/lib/types";
+import type { ClientInsight } from "@prisma/client";
 import { predictRetention, deriveFitBreakdown } from "@/lib/matching/predictions";
+import { approvalProbability } from "@/lib/matching/client-memory";
 
 // AI matching layer (Mission 10 Phase 3). The deterministic engine (scoring.ts)
 // stays the trusted default and fallback. This module:
@@ -16,13 +18,13 @@ export interface MatchLike extends CandidateAnalysisResult {
   candidate: CandidateInput;
 }
 
-/** Always-on deterministic enrichment: retention + fit breakdown + engine source. */
-export function enrichDeterministic<T extends MatchLike>(results: T[], job: JobRequirement, currentYear: number): T[] {
+/** Always-on deterministic enrichment: retention + fit breakdown + approval prob. */
+export function enrichDeterministic<T extends MatchLike>(results: T[], job: JobRequirement, currentYear: number, clientInsight?: ClientInsight | null): T[] {
   return results.map((r) => ({
     ...r,
     retentionProbability: predictRetention(r.candidate, currentYear),
     fitBreakdown: deriveFitBreakdown(r.candidate, job, currentYear),
-    approvalProbability: r.approvalProbability ?? null,
+    approvalProbability: approvalProbability(r.candidate, clientInsight ?? null).probability,
     reasoning: r.reasoning ?? null,
     engineSource: r.engineSource ?? "deterministic",
   }));
@@ -76,8 +78,8 @@ async function aiEvaluate(job: JobRequirement, results: MatchLike[]): Promise<Ma
  * Full matching enrichment. Deterministic always; AI rerank when enabled.
  * Anomalies cap the AI score. Never throws — falls back to deterministic.
  */
-export async function enrichMatches<T extends MatchLike>(results: T[], job: JobRequirement, currentYear: number): Promise<T[]> {
-  const base = enrichDeterministic(results, job, currentYear);
+export async function enrichMatches<T extends MatchLike>(results: T[], job: JobRequirement, currentYear: number, clientInsight?: ClientInsight | null): Promise<T[]> {
+  const base = enrichDeterministic(results, job, currentYear, clientInsight);
   if (!AI_MATCHING_ENABLED() || base.length === 0) return base;
 
   try {

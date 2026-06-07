@@ -12,7 +12,8 @@ export type JobType =
   | "interview_reminder"
   | "pending_feedback_reminder"
   | "extract_candidate_intelligence"
-  | "extract_job_intelligence";
+  | "extract_job_intelligence"
+  | "recompute_client_insight";
 
 export interface ClaimedJob {
   id: string;

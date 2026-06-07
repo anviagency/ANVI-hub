@@ -72,5 +72,12 @@ export async function applyClientDecision(input: ApplyClientDecisionInput): Prom
     ip: input.ip,
   });
 
+  // Learn the client's preferences from this decision (Mission 10 Phase 4).
+  const job = await prisma.job.findUnique({ where: { id: input.jobId }, select: { clientId: true } });
+  if (job?.clientId) {
+    const { enqueue } = await import("@/lib/queue/queue");
+    await enqueue("recompute_client_insight", { clientId: job.clientId }).catch(() => {});
+  }
+
   return { decision: input.decision, stage: result.to };
 }

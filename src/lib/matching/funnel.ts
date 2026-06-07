@@ -168,10 +168,15 @@ export async function runMatch(job: JobRow, opts: MatchOptions = {}): Promise<Ma
     .sort((a, b) => b.matchScore - a.matchScore)
     .slice(0, limit);
 
-  // Mission 10 Phase 3: always enrich with deterministic retention + fit breakdown;
-  // AI re-ranks the finalists when AI_MATCHING is enabled (anomaly-capped, fallback-safe).
+  // Mission 10 Phase 3/4: always enrich with deterministic retention + fit breakdown
+  // + client-memory approval probability; AI re-ranks finalists when AI_MATCHING is
+  // enabled (anomaly-capped, fallback-safe).
   const { enrichMatches } = await import("@/lib/matching/ai-match");
-  const enriched = await enrichMatches(ranked, toJobRequirement(job), currentYear);
+  const clientRow = await prisma.job.findUnique({ where: { id: job.id }, select: { clientId: true } });
+  const clientInsight = clientRow?.clientId
+    ? await prisma.clientInsight.findUnique({ where: { clientId: clientRow.clientId } })
+    : null;
+  const enriched = await enrichMatches(ranked, toJobRequirement(job), currentYear, clientInsight);
   return enriched.sort((a, b) => b.matchScore - a.matchScore);
 }
 

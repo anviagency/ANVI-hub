@@ -33,9 +33,31 @@ model Client {
   offers      Offer[]
   shareLinks  ShareLink[]
   clientMessages ClientMessage[]
+  insight     ClientInsight?
   users       User[]
 
   @@map("client")
+}
+
+// Client Memory (Mission 10 Phase 4) — learned preferences from decision history.
+model ClientInsight {
+  clientId             String   @id @map("client_id")
+  approvedCount        Int      @default(0) @map("approved_count")
+  rejectedCount        Int      @default(0) @map("rejected_count")
+  budgetCeilingObserved Float?  @map("budget_ceiling_observed") // max approved client rate
+  rejectsAboveRate     Float?   @map("rejects_above_rate")
+  preferredCountries   Json     @default("[]") @map("preferred_countries")
+  englishFloor         String?  @map("english_floor")
+  traitWeights         Json     @default("{}") @map("trait_weights")
+  preferences          Json     @default("[]") // [{text, weight, evidence}]
+  summary              String?
+  approvalRate         Float?   @map("approval_rate") // 0-1
+  source               String   @default("deterministic")
+  modelVersion         String?  @map("model_version")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  @@map("client_insight")
 }
 
 // ---------------------------------------------------------------------------
