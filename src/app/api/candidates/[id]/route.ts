@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { toCandidateInput, toJobRequirement } from "@/lib/matching/funnel";
 import { loadJobRow } from "@/lib/jobs";
 import { detectAnomalies } from "@/lib/matching/anomaly";
+import { scoreStability, detectNotableEmployers } from "@/lib/matching/insights";
 import { analyzeCandidate } from "@/lib/matching/scoring";
 import { scoreFreshness } from "@/lib/matching/freshness";
 import { scoreAvailability } from "@/lib/matching/availability";
@@ -158,6 +159,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       })),
     },
     anomalies,
+    // Recruiter insights (internal): stability/job-hopping signal + recognised
+    // employers. Cheap, deterministic, derived from employment history.
+    stability: scoreStability(input, currentYear),
+    notableEmployers: detectNotableEmployers(input),
     // Freshness is job-independent and always available.
     freshness: scoreFreshness(input),
     // Availability confidence (Mission 5.1 P5) + communication health (P4).

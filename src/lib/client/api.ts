@@ -100,6 +100,10 @@ export const api = {
   candidate: (id: string, jobId?: string) =>
     getJson<CandidateDetail>(`/api/candidates/${id}${jobId ? `?jobId=${jobId}` : ""}`),
 
+  // Lazy, AI-backed CV writing/spelling analysis (Insights panel).
+  candidateWriting: (id: string) =>
+    getJson<{ available: boolean; reason?: string; writing: WritingQuality | null }>(`/api/candidates/${id}/writing`),
+
   addNote: (id: string, body: { body: string; kind?: string; internal?: boolean; jobId?: string }) =>
     postJson<{ note: { id: string } }>(`/api/candidates/${id}/notes`, body),
 
@@ -245,6 +249,22 @@ export interface PlacementItem {
   client: { id: string; name: string; company: string | null } | null;
   job: { id: string; title: string } | null;
   offerId?: string | null;
+}
+
+export interface StabilityResult {
+  score: number | null;
+  band: "stable" | "moderate" | "job_hopper" | "insufficient";
+  avgTenureMonths: number | null;
+  shortStints: number;
+  roles: number;
+  reasons: string[];
+}
+
+export interface WritingQuality {
+  issues: number;
+  examples: { wrong: string; suggestion: string }[];
+  assessment: string;
+  band: "clean" | "minor" | "poor";
 }
 
 export interface WaMessageItem {
@@ -422,6 +442,8 @@ export interface CandidateDetail {
     employments: { company: string; title: string | null; fullTime: boolean; startDate: string; endDate: string | null }[];
   };
   anomalies: Anomaly[];
+  stability?: StabilityResult;
+  notableEmployers?: { company: string; matched: string }[];
   freshness?: FreshnessResult;
   availabilityScore?: { score: number; band: string; reasons: string[] };
   communicationHealth?: { band: "green" | "yellow" | "red"; daysSinceContact: number | null };

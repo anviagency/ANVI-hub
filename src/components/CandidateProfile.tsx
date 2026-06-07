@@ -3,7 +3,14 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { Icon } from "@/components/Icon";
 import { Avatar, MatchRing, Pill, initialsOf, AVAILABILITY_LABEL, FreshnessBadge, ScoreBreakdown } from "@/components/primitives";
-import { api, CandidateDetail } from "@/lib/client/api";
+import { api, CandidateDetail, WritingQuality } from "@/lib/client/api";
+
+const STABILITY_LABEL: Record<string, string> = {
+  stable: "Stable",
+  moderate: "Moderate",
+  job_hopper: "Job-hopper",
+  insufficient: "No history",
+};
 
 const STAGE_LABEL: Record<string, string> = {
   new: "New",
@@ -32,6 +39,7 @@ export function CandidateProfile({
   const [scheduleMsg, setScheduleMsg] = useState<string | null>(null);
   const [schedulePanel, setSchedulePanel] = useState<{ rescheduleId?: string } | null>(null);
   const [candidateLinkMsg, setCandidateLinkMsg] = useState<string | null>(null);
+  const [writing, setWriting] = useState<{ available: boolean; reason?: string; writing: WritingQuality | null } | null>(null);
 
   const load = useCallback(() => {
     api.candidate(candidateId, jobId).then(setData).catch(() => setError("Could not load candidate."));
@@ -40,6 +48,13 @@ export function CandidateProfile({
   useEffect(() => {
     load();
   }, [load]);
+
+  // Lazy AI writing/spelling analysis — fetched after the profile renders so it
+  // never blocks the main load.
+  useEffect(() => {
+    setWriting(null);
+    api.candidateWriting(candidateId).then(setWriting).catch(() => setWriting({ available: false, writing: null }));
+  }, [candidateId]);
 
   async function addNote() {
     if (!noteBody.trim()) return;
@@ -224,6 +239,65 @@ export function CandidateProfile({
               </div>
             </div>
           )}
+
+          {/* Insights: stability / notable employers / writing quality */}
+          <div className="panel">
+            <div className="panel-title"><Icon name="bolt" size={14} /> Insights</div>
+            {data.stability && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 13, color: "var(--mute)" }}>Stability</span>
+                  {data.stability.score == null ? (
+                    <Pill tone="default">No history</Pill>
+                  ) : (
+                    <Pill tone={data.stability.band === "stable" ? "good" : data.stability.band === "moderate" ? "warn" : "bad"}>
+                      {STABILITY_LABEL[data.stability.band]} · {data.stability.score}/100
+                    </Pill>
+                  )}
+                  {data.stability.avgTenureMonths != null && (
+                    <span style={{ fontSize: 12, color: "var(--mute)" }}>avg tenure ~{(data.stability.avgTenureMonths / 12).toFixed(1)}y · {data.stability.roles} role{data.stability.roles === 1 ? "" : "s"}</span>
+                  )}
+                </div>
+                {data.stability.reasons.length > 0 && (
+                  <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 4 }}>{data.stability.reasons.join(" ")}</div>
+                )}
+              </div>
+            )}
+            {data.notableEmployers && data.notableEmployers.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 13, color: "var(--mute)", marginBottom: 4 }}>Recognised employers</div>
+                <div className="tag-row tag-row-sm">
+                  {data.notableEmployers.map((e, i) => (
+                    <Pill key={i} tone="good">⭐ {e.matched}</Pill>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 13, color: "var(--mute)" }}>CV writing</span>
+                {!writing ? (
+                  <span style={{ fontSize: 12, color: "var(--faint)" }}>analyzing…</span>
+                ) : !writing.available || !writing.writing ? (
+                  <span style={{ fontSize: 12, color: "var(--faint)" }}>{writing?.reason === "ai_disabled" ? "AI disabled" : "not analyzed"}</span>
+                ) : (
+                  <Pill tone={writing.writing.band === "clean" ? "good" : writing.writing.band === "minor" ? "warn" : "bad"}>
+                    {writing.writing.issues === 0 ? "No spelling issues" : `${writing.writing.issues} spelling/grammar issue${writing.writing.issues === 1 ? "" : "s"}`}
+                  </Pill>
+                )}
+              </div>
+              {writing?.writing && writing.writing.assessment && (
+                <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 4 }}>{writing.writing.assessment}</div>
+              )}
+              {writing?.writing && writing.writing.examples.length > 0 && (
+                <ul style={{ margin: "4px 0 0 16px", fontSize: 12, color: "var(--ink-soft)" }}>
+                  {writing.writing.examples.slice(0, 5).map((ex, i) => (
+                    <li key={i}><s>{ex.wrong}</s> → {ex.suggestion}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
 
           {/* Strengths / Risks */}
           {a && (a.strengths.length > 0 || a.risks.length > 0) && (

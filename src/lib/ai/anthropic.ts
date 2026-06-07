@@ -65,7 +65,10 @@ async function geminiJson<T>(opts: { model?: string; system: string; user: strin
     body: JSON.stringify({
       system_instruction: { parts: [{ text: opts.system }] },
       contents: [{ role: "user", parts: [{ text: opts.user }] }],
-      generationConfig: { responseMimeType: "application/json", maxOutputTokens: opts.maxTokens ?? 1024, temperature: 0 },
+      // These are structured-extraction tasks, not open reasoning. Disable
+      // "thinking" (2.5-series) so the token budget goes to the JSON body — long
+      // inputs otherwise exhaust the budget on thoughts and truncate the output.
+      generationConfig: { responseMimeType: "application/json", maxOutputTokens: opts.maxTokens ?? 1024, temperature: 0, thinkingConfig: { thinkingBudget: 0 } },
     }),
   });
   if (!res.ok) {
