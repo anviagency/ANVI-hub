@@ -10,6 +10,7 @@ const VALID_INTENTS: Intent[] = [
   "create_job",
   "attach_client",
   "match_candidates",
+  "search_candidates",
   "compare",
   "find_similar",
   "availability",
@@ -81,7 +82,22 @@ export function routeIntentDeterministic(text: string): RoutedIntent | null {
     return { intent: "status", entities, source: "deterministic" };
   }
 
-  // match candidates
+  // search the candidate POOL by attributes (skill / years / country), independent
+  // of any job — e.g. "find candidates with 7 years Python", "who knows React".
+  // Guard against job-creation phrasing ("need/hiring a Python dev with React").
+  const skillsInText = extractSkillsFromText(text);
+  const jobCreationPhrasing = /\b(need|hire|hiring|looking for|seeking|require|open(ing)?|post|recruit(ing)?|new (role|position|vacancy))\b/.test(t);
+  const peopleNoun = /\b(candidates?|people|someone|anyone|profiles?|talent)\b/.test(t);
+  const findVerbWithCriteria =
+    /\b(find|search|show|who)\b/.test(t) && (/\d{1,2}\s*\+?\s*(?:years?|yrs?)/.test(t) || /\bknows?\b/.test(t));
+  if (skillsInText.length >= 1 && !jobCreationPhrasing && (peopleNoun || findVerbWithCriteria)) {
+    const ym = t.match(/(\d{1,2})\s*\+?\s*(?:years?|yrs?)/);
+    entities.skills = skillsInText;
+    if (ym) entities.minYears = parseInt(ym[1], 10);
+    return { intent: "search_candidates", entities, source: "deterministic" };
+  }
+
+  // match candidates (for the job in focus)
   if (/\b(match|find( me)?|search|who|best|top|shortlist|candidates?)\b/.test(t)) {
     return { intent: "match_candidates", entities, source: "deterministic" };
   }
@@ -102,8 +118,14 @@ export function routeIntentDeterministic(text: string): RoutedIntent | null {
   return null;
 }
 
-const SYSTEM_PROMPT = `Classify the recruiter message into exactly one intent and extract entities.
-Return ONLY JSON: {"intent": "<one of: create_job, attach_client, match_candidates, compare, find_similar, availability, submit, share, explain, summarize, followup, status, smalltalk>", "entities": {"names": [string], "count": number, "client": string}}`;
+const SYSTEM_PROMPT = `Classify the recruiter message into exactly one intent and extract entities. The message may be in English or Hebrew.
+Intents:
+- match_candidates: rank the best candidates for the CURRENT / most-recent open JOB.
+- search_candidates: find candidates in the DATABASE by ATTRIBUTES (skills, years of experience, country, English level), NOT tied to a specific job. Examples: "find candidates with 7 years Python", "who knows React", "מצא מועמדים עם 7 שנות ניסיון בפייתון", "אנשים עם ניסיון ב-AWS".
+- create_job, attach_client, compare, find_similar, availability, submit, share, explain, summarize, followup, status, smalltalk.
+Use search_candidates when the message describes desired candidate attributes WITHOUT referring to a specific open role.
+Return ONLY JSON: {"intent": "<one intent>", "entities": {"names": [string], "count": number, "client": string, "skills": [string], "min_years": number, "country": string, "english_level": string}}
+For skills, use canonical technology/skill names (e.g. "Python", "React", "AWS").`;
 
 interface LlmIntent {
   intent: string;

@@ -26,6 +26,7 @@ export type Intent =
   | "create_job"
   | "attach_client"
   | "match_candidates"
+  | "search_candidates"
   | "compare"
   | "find_similar"
   | "availability"

@@ -7,6 +7,7 @@ import { scoreAvailability } from "@/lib/matching/availability";
 import { applyStage } from "@/lib/pipeline";
 import { createShareLink } from "@/lib/share";
 import { audit } from "@/lib/auth/audit";
+import { extractSkillsFromText, canonicalizeSkill } from "@/lib/ai/skills";
 import type { Prisma } from "@prisma/client";
 
 // Recruiter Copilot brain (Mission 5.2). Each handler turns intent + message into
@@ -254,6 +255,95 @@ export async function handleShare(message: string, count: number, userId: string
     reply: `Client link ready with ${ids.length} candidate${ids.length === 1 ? "" : "s"} for ${job.title}.`,
     kind: "share_result", data: { url: `/share/${link.token}`, token: link.token, candidates: ids.map((i) => i.name) },
   };
+}
+
+/** Extract a "N years" threshold from free text (English + Hebrew). */
+function extractMinYears(message: string): number | null {
+  const m = message.match(/(\d{1,2})\s*\+?\s*(?:years?|yrs?|שנ(?:ים|ות|ה))/i);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+/**
+ * Search the candidate POOL by attributes (skills, min years, country) —
+ * independent of any job (spec §6.4 candidate rediscovery / §9.3 free-text
+ * search). This is NOT a job match: it answers "find candidates with 7 years
+ * Python" directly against the database.
+ */
+export async function handleSearchCandidates(message: string, entities: Record<string, unknown>): Promise<ChatResult> {
+  // Criteria: prefer router-extracted entities (AI handles Hebrew), else derive
+  // deterministically from the message.
+  const rawSkills = Array.isArray(entities.skills) ? (entities.skills as unknown[]).map(String) : [];
+  const skills = (rawSkills.length ? rawSkills : extractSkillsFromText(message))
+    .map((s) => canonicalizeSkill(s) ?? s)
+    .filter((s, i, arr) => s && arr.indexOf(s) === i);
+  const minYears = Number(entities.minYears ?? entities.min_years ?? 0) || extractMinYears(message) || 0;
+  const country = (entities.country as string)?.trim() || undefined;
+
+  if (skills.length === 0) {
+    return {
+      intent: "search_candidates", thinking: [], kind: "fallback", data: {},
+      reply: "Which skill should I search for? e.g. “find candidates with 7 years Python”.",
+    };
+  }
+
+  // Fast filter: candidates holding at least one requested skill (+ optional country).
+  const where: Prisma.CandidateWhereInput = {
+    deletedAt: null,
+    archivedAt: null,
+    skills: { some: { skill: { canonicalName: { in: skills, mode: "insensitive" } } } },
+  };
+  if (country) where.country = { equals: country, mode: "insensitive" };
+
+  const rows = await prisma.candidate.findMany({ where, include: candidateInclude, take: 100 });
+
+  const lc = (s: string) => s.toLowerCase();
+  const wanted = skills.map(lc);
+  const ranked = rows
+    .map((c) => {
+      const cs = c.skills.map((s) => ({ name: s.skill.canonicalName, years: s.years }));
+      const matched = cs.filter((s) => wanted.includes(lc(s.name)));
+      const bestYears = matched.length ? Math.max(...matched.map((s) => s.years)) : 0;
+      const totalYears = c.totalYears ?? 0;
+      const meetsYears = minYears ? bestYears >= minYears || totalYears >= minYears : true;
+      // Relevance: skills covered + years threshold + depth (capped).
+      const coverage = matched.length / skills.length;
+      const score = Math.round(coverage * 60 + (meetsYears ? 25 : 0) + Math.min(bestYears, 15));
+      return { c, cs, matched, bestYears, totalYears, meetsYears, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10);
+
+  const list = ranked.map((r) => {
+    const input = toCandidateInput(r.c);
+    const anomalies = detectAnomalies(input, { currentYear: new Date().getUTCFullYear() });
+    const strengths = r.matched.map((m) => ({ text: `${formatYrs(m.years)} ${m.name}`, evidence: "" }));
+    const risks = minYears && !r.meetsYears ? [{ text: `Below requested ${minYears}+ years (${formatYrs(r.bestYears)} on ${skills[0]})`, severity: "low" }] : [];
+    return {
+      id: r.c.id, name: r.c.fullName, title: r.c.title, country: r.c.country, location: r.c.location, flag: r.c.flag,
+      english: r.c.englishLevel, availability: r.c.availability, availabilityNote: r.c.availabilityNote,
+      clientRate: r.c.clientRate, skills: r.cs.map((s) => s.name).slice(0, 8),
+      matchScore: r.score, recommendation: r.score >= 80 ? "strong" : r.score >= 55 ? "possible" : "weak",
+      strengths, risks, anomalies: anomalies.map((a) => ({ text: a.text, severity: a.severity })),
+    };
+  });
+
+  const criteria = [skills.join(", "), minYears ? `${minYears}+ years` : null, country].filter(Boolean).join(" · ");
+  const metCount = ranked.filter((r) => r.meetsYears && r.matched.length === skills.length).length;
+  const reply = list.length
+    ? `Found ${list.length} candidate${list.length === 1 ? "" : "s"} matching ${criteria}${minYears ? ` — ${metCount} meet the ${minYears}+ years bar.` : "."}`
+    : `No candidates in the database match ${criteria}. Try importing CVs, or broaden the criteria.`;
+
+  return {
+    intent: "search_candidates",
+    thinking: [`Searching the talent pool for ${criteria}…`, "Ranking by skill coverage, years & depth…"],
+    reply,
+    kind: list.length ? "candidates" : "fallback",
+    data: { list, search: { skills, minYears, country } },
+  };
+}
+
+function formatYrs(y: number): string {
+  return Number.isInteger(y) ? `${y}y` : `${y.toFixed(1)}y`;
 }
 
 export async function handlePending(): Promise<ChatResult> {
