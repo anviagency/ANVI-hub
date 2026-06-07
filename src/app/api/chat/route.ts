@@ -7,7 +7,7 @@ import { runMatch, persistAnalyses } from "@/lib/matching/funnel";
 import { aiEnabled } from "@/lib/ai/anthropic";
 import { authorizeMutation, RECRUITER_ROLES } from "@/lib/auth/guard";
 import {
-  handleExplain, handleAvailability, handleSummarize, handleCompare, handleSubmit, handleShare, handlePending, handleSearchCandidates,
+  handleExplain, handleAvailability, handleSummarize, handleCompare, handleSubmit, handleShare, handlePending, handleSearchCandidates, handleSimilar,
 } from "@/lib/chat/copilot";
 import { extractSkillsFromText } from "@/lib/ai/skills";
 import { runIntake, JobIntake } from "@/lib/chat/intake";
@@ -77,8 +77,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(await runIntake(message, null, auth.user.id));
     case "search_candidates":
       return NextResponse.json(await handleSearchCandidates(message, routed.entities));
-    case "match_candidates":
     case "find_similar":
+      // First-class candidate similarity — never silently a job match (Phase 5).
+      return NextResponse.json(await handleSimilar(message, jobId));
+    case "match_candidates":
       // No job in focus + the query names concrete skills → it's a pool search,
       // not a job match (e.g. "find candidates with 7 years Python"). Don't
       // silently match the most-recent job and ignore the criteria.

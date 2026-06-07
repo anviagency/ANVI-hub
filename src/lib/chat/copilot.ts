@@ -8,6 +8,7 @@ import { applyStage } from "@/lib/pipeline";
 import { createShareLink } from "@/lib/share";
 import { audit } from "@/lib/auth/audit";
 import { extractSkillsFromText, canonicalizeSkill } from "@/lib/ai/skills";
+import { similarToCandidate, similarToLastHire, type SimilarResult } from "@/lib/matching/similarity";
 import type { Prisma } from "@prisma/client";
 
 // Recruiter Copilot brain (Mission 5.2). Each handler turns intent + message into
@@ -411,6 +412,50 @@ export async function handleShortlist(message: string, count: number, jobId?: st
     reply: list.length ? `Here's a shortlist of ${list.length} for ${job.title}. I can share these with the client or generate a package.` : "No candidates yet — run a match first.",
     kind: list.length ? "candidates" : "fallback",
     data: { jobId: job.id, jobTitle: job.title, list },
+  };
+}
+
+/**
+ * "Find candidates similar to X" — a FIRST-CLASS candidate-similarity capability
+ * (Mission 10 Phase 5). Never silently matches a job. Supports modifiers:
+ * cheaper, stronger English, and "similar to the last successful hire".
+ */
+export async function handleSimilar(message: string, jobId?: string): Promise<ChatResult> {
+  void jobId;
+  const cheaper = /\b(cheaper|lower(\s+rate)?|less expensive|under budget)\b/i.test(message);
+  const strongerEnglish = /\b(stronger|better|higher|more)\b[^.]*\benglish\b/i.test(message) || /\benglish\b[^.]*\b(stronger|better|higher)\b/i.test(message);
+  const lastHire = /\b(last|recent|previous|successful)\b[^.]*\b(hire|placement|placed|candidate)\b/i.test(message);
+
+  let result: SimilarResult;
+  let refLabel = "that candidate";
+  if (lastHire) {
+    const client = await findClientInMessage(message);
+    const clientId = client?.id ?? (await prisma.placement.findFirst({ orderBy: { createdAt: "desc" }, select: { clientId: true } }))?.clientId;
+    if (!clientId) return { intent: "find_similar", thinking: [], kind: "fallback", data: {}, reply: "There are no placements yet to compare against." };
+    result = await similarToLastHire(clientId, { limit: 8, cheaperThanRef: cheaper, strongerEnglish });
+    refLabel = result.reference ? `${result.reference.name} (last successful hire)` : "the last successful hire";
+    if (!result.reference) return { intent: "find_similar", thinking: [], kind: "fallback", data: {}, reply: "No successful hire found for that client yet." };
+  } else {
+    const named = await findCandidatesInMessage(message, 1);
+    if (named.length === 0) return { intent: "find_similar", thinking: [], kind: "fallback", data: {}, reply: "Who should I find similar candidates to? Name them, e.g. “find candidates similar to Vasya”." };
+    result = await similarToCandidate(named[0].id, { limit: 8, cheaperThanRef: cheaper, strongerEnglish, excludePlaced: true });
+    refLabel = result.reference?.name ?? named[0].fullName;
+  }
+
+  const list = result.candidates.map((c) => ({
+    id: c.id, name: c.name, title: null, country: c.country, location: null, flag: null,
+    english: c.englishLevel, availability: "available", availabilityNote: null, clientRate: c.clientRate,
+    skills: c.skills.slice(0, 8), matchScore: c.similarity,
+    recommendation: c.similarity >= 70 ? "strong" : c.similarity >= 45 ? "possible" : "weak",
+    strengths: [{ text: `${c.similarity}% similar`, evidence: "skills + experience + location" }], risks: [], anomalies: [],
+  }));
+  const mods = [cheaper ? "cheaper" : null, strongerEnglish ? "stronger English" : null].filter(Boolean).join(" · ");
+  return {
+    intent: "find_similar",
+    thinking: ["Comparing skills, experience & profile…"],
+    reply: list.length ? `Candidates similar to ${refLabel}${mods ? ` — ${mods}` : ""}: ${list.length} found.` : `No similar candidates${mods ? ` (${mods})` : ""} found for ${refLabel}.`,
+    kind: list.length ? "candidates" : "fallback",
+    data: { list, reference: result.reference },
   };
 }
 

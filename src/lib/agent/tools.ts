@@ -11,6 +11,7 @@ import {
   handleMatchForJob,
   handleSafest,
   handleShortlist,
+  handleSimilar,
   type ChatResult,
 } from "@/lib/chat/copilot";
 
@@ -86,6 +87,12 @@ export const TOOLS: Tool[] = [
     params: z.object({ count: num, jobId: z.string().optional() }),
     sensitive: true,
     run: (a, ctx) => handleShare(ctx.message, (a.count as number) ?? 3, ctx.userId, (a.jobId as string) ?? ctx.jobId),
+  },
+  {
+    name: "find_similar",
+    description: "Find candidates similar to a named candidate or the client's last successful hire. Supports modifiers like cheaper or stronger English. Use for 'find candidates like Vasya but cheaper'.",
+    params: z.object({}),
+    run: (a, ctx) => handleSimilar(ctx.message, ctx.jobId),
   },
   {
     name: "safest_candidate",
