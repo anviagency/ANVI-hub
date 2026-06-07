@@ -144,6 +144,8 @@ async function finalize(i: JobIntake, userId: string): Promise<ChatResult> {
     include: { client: true },
   });
   await audit({ userId, action: "job_created_conversational", entity: "job", entityId: job.id, meta: { title: job.title } });
+  const { enqueue } = await import("@/lib/queue/queue");
+  await enqueue("extract_job_intelligence", { jobId: job.id }).catch(() => {});
   return {
     intent: "create_job", thinking: ["Creating the position…", "Setting up the workspace…"],
     reply: `Done — ${job.title}${job.client ? ` for ${job.client.company ?? job.client.name}` : ""} is live. I've opened its workspace; say “match” and I'll start sourcing candidates.`,

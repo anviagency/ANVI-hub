@@ -138,4 +138,13 @@ export interface CandidateAnalysisResult {
   freshness: FreshnessResult;
   availability: AvailabilityResult;
   scoreBreakdown: ScoreComponent[];
+  // Mission 10 Phase 3 — enriched (optional; populated by the matching pipeline).
+  retentionProbability?: number | null;
+  approvalProbability?: number | null;
+  fitBreakdown?: {
+    technical: number | null; industry: number | null; culture: number | null;
+    leadership: number | null; communication: number | null; availability: number | null; budget: number | null;
+  } | null;
+  reasoning?: string | null;
+  engineSource?: "deterministic" | "ai" | "hybrid";
 }

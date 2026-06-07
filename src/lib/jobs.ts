@@ -45,6 +45,11 @@ export function serializeMatch(r: MatchResult) {
     anomalies: r.anomalies,
     freshness: r.freshness,
     scoreBreakdown: r.scoreBreakdown,
+    retentionProbability: r.retentionProbability ?? null,
+    approvalProbability: r.approvalProbability ?? null,
+    fitBreakdown: r.fitBreakdown ?? null,
+    reasoning: r.reasoning ?? null,
+    engineSource: r.engineSource ?? "deterministic",
   };
 }
 

@@ -163,10 +163,16 @@ export async function runMatch(job: JobRow, opts: MatchOptions = {}): Promise<Ma
   const inputs = rows.map(toCandidateInput);
   const analyzed = stage2Analyze(inputs, toJobRequirement(job), { currentYear, now });
 
-  return analyzed
+  const ranked = analyzed
     .filter((r) => r.matchScore >= minScore)
     .sort((a, b) => b.matchScore - a.matchScore)
     .slice(0, limit);
+
+  // Mission 10 Phase 3: always enrich with deterministic retention + fit breakdown;
+  // AI re-ranks the finalists when AI_MATCHING is enabled (anomaly-capped, fallback-safe).
+  const { enrichMatches } = await import("@/lib/matching/ai-match");
+  const enriched = await enrichMatches(ranked, toJobRequirement(job), currentYear);
+  return enriched.sort((a, b) => b.matchScore - a.matchScore);
 }
 
 /** Persist analyses so the candidate workspace / portal can read cached intelligence. */
@@ -183,7 +189,12 @@ export async function persistAnalyses(jobId: string, results: MatchResult[]): Pr
           strengths: r.strengths as unknown as Prisma.InputJsonValue,
           risks: r.risks as unknown as Prisma.InputJsonValue,
           anomalies: r.anomalies as unknown as Prisma.InputJsonValue,
-          modelVersion: "deterministic-v1",
+          retentionProbability: r.retentionProbability ?? null,
+          approvalProbability: r.approvalProbability ?? null,
+          fitBreakdown: (r.fitBreakdown ?? undefined) as Prisma.InputJsonValue | undefined,
+          reasoning: r.reasoning ?? null,
+          engineSource: r.engineSource ?? "deterministic",
+          modelVersion: r.engineSource === "ai" ? "ai-v1" : "deterministic-v1",
         },
         update: {
           matchScore: r.matchScore,
@@ -191,7 +202,12 @@ export async function persistAnalyses(jobId: string, results: MatchResult[]): Pr
           strengths: r.strengths as unknown as Prisma.InputJsonValue,
           risks: r.risks as unknown as Prisma.InputJsonValue,
           anomalies: r.anomalies as unknown as Prisma.InputJsonValue,
-          modelVersion: "deterministic-v1",
+          retentionProbability: r.retentionProbability ?? null,
+          approvalProbability: r.approvalProbability ?? null,
+          fitBreakdown: (r.fitBreakdown ?? undefined) as Prisma.InputJsonValue | undefined,
+          reasoning: r.reasoning ?? null,
+          engineSource: r.engineSource ?? "deterministic",
+          modelVersion: r.engineSource === "ai" ? "ai-v1" : "deterministic-v1",
           analyzedAt: new Date(),
         },
       })

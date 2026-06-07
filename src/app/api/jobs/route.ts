@@ -105,6 +105,8 @@ export async function POST(req: NextRequest) {
   });
 
   await audit({ userId: auth.user.id, action: "job_created", entity: "job", entityId: job.id, meta: { title: job.title }, ip: getClientIp(req) });
+  const { enqueue } = await import("@/lib/queue/queue");
+  await enqueue("extract_job_intelligence", { jobId: job.id }).catch(() => {});
 
   return NextResponse.json({
     job: {

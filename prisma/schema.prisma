@@ -176,9 +176,10 @@ model Job {
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
-  client      Client?            @relation(fields: [clientId], references: [id], onDelete: SetNull)
-  skills      JobSkill[]
-  analyses    CandidateAnalysis[]
+  client       Client?            @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  skills       JobSkill[]
+  intelligence JobIntelligence?
+  analyses     CandidateAnalysis[]
   events      CandidateEvent[]
   interviews  Interview[]
   submissions Submission[]
@@ -192,6 +193,25 @@ model Job {
 
   @@index([clientId])
   @@map("job")
+}
+
+// Job Intelligence (Mission 10 Phase 3) — AI understanding of the role, cached.
+model JobIntelligence {
+  jobId         String   @id @map("job_id")
+  mustHave      Json     @default("[]") @map("must_have")     // hard requirements
+  niceToHave    Json     @default("[]") @map("nice_to_have")
+  inferredIndustries Json @default("[]") @map("inferred_industries")
+  cultureSignals Json    @default("[]") @map("culture_signals") // ["startup pace","enterprise process"]
+  senioritySignal String? @map("seniority_signal")
+  summary       String?
+  modelVersion  String?  @map("model_version")
+  source        String   @default("deterministic")
+  raw           Json     @default("{}")
+  generatedAt   DateTime @default(now()) @map("generated_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  @@map("job_intelligence")
 }
 
 model JobSkill {
@@ -388,6 +408,12 @@ model CandidateAnalysis {
   strengths    Json           @default("[]") // [{text, evidence}]
   risks        Json           @default("[]") // [{text, severity}]
   anomalies    Json           @default("[]") // [{text, rule, severity}]
+  // Mission 10 Phase 3 — richer, AI-aware analysis (all optional/additive).
+  approvalProbability  Float?  @map("approval_probability")  // 0-100, client memory
+  retentionProbability Float?  @map("retention_probability") // 0-100, deterministic
+  fitBreakdown Json?           @map("fit_breakdown") // {technical,industry,culture,leadership,communication,availability,budget}
+  reasoning    String?         // AI narrative ("why this candidate")
+  engineSource String   @default("deterministic") @map("engine_source") // deterministic | ai | hybrid
   modelVersion String?        @map("model_version")
   analyzedAt   DateTime       @default(now()) @map("analyzed_at")
 

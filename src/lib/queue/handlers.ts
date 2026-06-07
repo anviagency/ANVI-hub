@@ -80,6 +80,14 @@ export const handlers: Handlers = {
     return { candidateId, ok };
   },
 
+  // Job Intelligence extraction (Mission 10 Phase 3) — off-request, cached for AI matching.
+  extract_job_intelligence: async (payload) => {
+    const { upsertJobIntelligence } = await import("@/lib/ai/job-intelligence");
+    const jobId = String(payload.jobId);
+    const ok = await upsertJobIntelligence(jobId);
+    return { jobId, ok };
+  },
+
   // Pending-feedback reminder for a client/job.
   pending_feedback_reminder: async (payload) => {
     const waId = await notifyPendingFeedback(String(payload.clientId), String(payload.jobId));
