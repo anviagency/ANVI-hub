@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { loadJobRow } from "@/lib/jobs";
+import { loadJobRow, serializeMatch } from "@/lib/jobs";
 import { runMatch, persistAnalyses, toCandidateInput, toJobRequirement, JobRow } from "@/lib/matching/funnel";
 import { analyzeCandidate } from "@/lib/matching/scoring";
 import { detectAnomalies } from "@/lib/matching/anomaly";
@@ -344,6 +344,37 @@ export async function handleSearchCandidates(message: string, entities: Record<s
 
 function formatYrs(y: number): string {
   return Number.isInteger(y) ? `${y}y` : `${y.toFixed(1)}y`;
+}
+
+/**
+ * Match the talent pool against a JOB in focus (explicit jobId or most-recent open).
+ * Extracted from the chat route so it can be reused as an agent tool.
+ */
+export async function handleMatchForJob(message: string, jobId?: string, entities: Record<string, unknown> = {}): Promise<ChatResult> {
+  let job = jobId ? await loadJobRow(jobId) : null;
+  if (!job) {
+    const recent = await prisma.job.findFirst({ where: { status: "open", deletedAt: null }, orderBy: { createdAt: "desc" } });
+    if (recent) job = await loadJobRow(recent.id);
+  }
+  if (!job) {
+    return { intent: "match_candidates", thinking: [], kind: "fallback", data: {}, reply: "I don't have an open role yet. Paste a job description and I'll structure it first." };
+  }
+  const cheaper = entities.cheaper === true || /\b(cheaper|under budget|lower)\b/i.test(message);
+  const results = await runMatch(job, { limit: 6 });
+  let serialized = results.map(serializeMatch);
+  if (cheaper && job.budgetMax) {
+    const mid = job.budgetMax * 0.85;
+    serialized = serialized.filter((c) => (c.clientRate ?? Infinity) <= mid);
+  }
+  await persistAnalyses(job.id, results).catch((e) => console.error("persistAnalyses", e));
+  const flagged = serialized.filter((c) => c.anomalies.length > 0).length;
+  return {
+    intent: "match_candidates",
+    thinking: ["Stage 1 · filtering the talent pool…", "Stage 2 · analysis + anomaly checks…", "Ranking…"],
+    reply: `Here ${serialized.length === 1 ? "is" : "are"} the ${serialized.length} strongest match${serialized.length === 1 ? "" : "es"} for ${job.title}${cheaper ? ", filtered to your budget" : ""}.${flagged > 0 ? ` ⚠️ ${flagged} ${flagged === 1 ? "has" : "have"} a red anomaly worth a look.` : ""}`,
+    kind: "candidates",
+    data: { jobId: job.id, jobTitle: job.title, list: serialized },
+  };
 }
 
 export async function handlePending(): Promise<ChatResult> {

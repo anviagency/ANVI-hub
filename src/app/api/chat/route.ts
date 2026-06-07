@@ -11,6 +11,7 @@ import {
 } from "@/lib/chat/copilot";
 import { extractSkillsFromText } from "@/lib/ai/skills";
 import { runIntake, JobIntake } from "@/lib/chat/intake";
+import { runAgent, AGENT_ENABLED } from "@/lib/agent/orchestrator";
 
 export const runtime = "nodejs";
 
@@ -42,6 +43,18 @@ export async function POST(req: NextRequest) {
   const pending = context?.pendingJob as JobIntake | undefined;
   if (pending && (pending.asking || pending.stage === "confirm_client" || pending.stage === "create_client")) {
     return NextResponse.json(await runIntake(message, pending, auth.user.id));
+  }
+
+  // AI-first decision layer (Mission 10). When enabled, the AI understands and
+  // decides; it returns null to fall back to the deterministic router below, so
+  // the system never breaks if the AI is off or uncertain.
+  if (AGENT_ENABLED()) {
+    try {
+      const outcome = await runAgent(message, { userId: auth.user.id, jobId, message });
+      if (outcome) return NextResponse.json(outcome.result);
+    } catch (e) {
+      console.error("agent orchestrator failed, falling back:", (e as Error).message);
+    }
   }
 
   const routed = await routeIntent(message);
