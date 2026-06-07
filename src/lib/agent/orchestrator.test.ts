@@ -56,7 +56,7 @@ describe("agent orchestrator", () => {
 
   it("asks for a missing field instead of acting", async () => {
     mockPlan({ action: "ask", ask: "Who is this role for?" });
-    const out = await runAgent("need a senior dev", ctx);
+    const out = await runAgent("handle that for me", ctx);
     expect(out?.result.reply).toBe("Who is this role for?");
     expect(out?.result.data.awaitingInput).toBe(true);
   });

@@ -1,4 +1,5 @@
 import { completeJson, aiEnabled, MODEL_FAST } from "@/lib/ai/anthropic";
+import { routeIntentDeterministic } from "@/lib/ai/intent-router";
 import { TOOL_BY_NAME, toolCatalog, type ToolContext } from "@/lib/agent/tools";
 import type { ChatResult } from "@/lib/chat/copilot";
 
@@ -84,6 +85,12 @@ export async function runConfirmedAction(pending: PendingAction, ctx: ToolContex
  * router" (AI off, no plan, or a plan the deterministic path handles better).
  */
 export async function runAgent(message: string, ctx: ToolContext): Promise<AgentOutcome | null> {
+  // Deterministic safety net: opening a new role is a reliable, well-tested
+  // detection and a special conversational flow. Trust it over the LLM (which can
+  // mistake "we need a Senior Python dev" for a candidate search) and hand off to
+  // the intake state machine.
+  if (routeIntentDeterministic(message)?.intent === "create_job") return null;
+
   const plan = await planAction(message, ctx);
   if (!plan) return null;
 
